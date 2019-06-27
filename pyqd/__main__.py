@@ -17,10 +17,15 @@ def err_callback(e):
     print(e)
 
 
-def run_batch(m_state, m_model, m_integrator, box, nstep, seed, nbatch, nproc):
+def run_batch(tasktype, m_state, m_model, m_integrator, box, nstep, seed, nbatch, nproc):
 
     state_stat = []
-    mdtask = batch.FSSHTask(nstep, box)
+
+    if tasktype == 'fssh':
+        mdtask = batch.FSSHTask(nstep, box)
+    elif tasktype == 'ehrenfest':
+        mdtask == batch.EhrenfestTask(nstep, box)
+        
     mdtask.load(m_state, m_model, m_integrator)
 
     if nproc > 1:
@@ -50,31 +55,36 @@ def run_batch(m_state, m_model, m_integrator, box, nstep, seed, nbatch, nproc):
     return stat_matrix
 
 
-def plot_md(recorder:recorder.Recorder, m_model, box):
+def plot_md(tasktype, recorder:recorder.Recorder, m_model, box):
 
     import matplotlib.pyplot as plt
 
     m_x = recorder.get_data('x')
     m_ke = recorder.get_data('ke')
     m_pe = recorder.get_data('pe')
-    m_drv_coupling = recorder.get_data('drv_coupling')
 
     x = np.linspace(box[0,0], box[0,1], 200)[:,np.newaxis]
     ad_energy, drv_coupling = evaluator.Evaluator(m_model).evaluate(x)
 
+    plt.figure('E-t')
+    plt.plot(recorder.get_time(), m_ke+m_pe, 'k-', lw=1, label='Energy')
+    plt.legend()
+
     plt.figure('E-x')
     plt.plot(x, ad_energy[:,0], 'k--', lw=0.5, label='E0')
     plt.plot(x, ad_energy[:,1], 'b--', lw=0.5, label='E1')
-    plt.plot(m_x, m_pe, 'm-', lw=1, label='simulation')
+    plt.plot(m_x, m_pe, 'm-', lw=1, label=tasktype)
     plt.legend()
 
-    plt.figure('d-x')
-    plt.plot(x, drv_coupling[:,0,1,0], 'k--', lw=0.5, label='d12')
-    plt.plot(m_x, m_drv_coupling[:,0,1,0], 'm-', lw=1, label='simulation')
-    plt.legend()
+    if tasktype == 'fssh':
 
-    plt.figure('E-t')
-    plt.plot(recorder.get_time(), m_ke+m_pe, 'k-', lw=1, label='Energy')
+        m_drv_coupling = recorder.get_data('drv_coupling')
+
+        plt.figure('d-x')
+        plt.plot(x, drv_coupling[:,0,1,0], 'k--', lw=0.5, label='d12')
+        plt.plot(m_x, m_drv_coupling[:,0,1,0], 'm-', lw=1, label=tasktype)
+        plt.legend()
+
 
     plt.show()
 
@@ -84,6 +94,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='FSSH')
     parser.add_argument('--batch', default=0, type=int, help='Run batch')
     parser.add_argument('--np', default=1, type=int, help='Process')
+    parser.add_argument('--task', default='fssh', type=str, help='Simulation type')
     parser.add_argument('--nstep', default=40000, type=int, help='Maximum step')
     parser.add_argument('--dt', default=0.5, type=float, help='Timestep')
     parser.add_argument('--box', default='-4,4', type=str, help='Simulation box')
@@ -149,7 +160,7 @@ if __name__ == '__main__':
                 state.create_pure_rho_el(m_model.el_dim)
                 )
 
-            KE, PE = m_integrator.get_energy(init_state)
+            KE, PE = m_integrator.get_energy_ss(init_state) # WARNING: this could be incorrect for mixed state.
             stat_matrix = run_batch(
                 init_state,
                 m_model,
@@ -172,9 +183,14 @@ if __name__ == '__main__':
         np.random.seed(opt.seed)
         init_state = state.State(start_x, klist[0]/m, state.create_pure_rho_el(m_model.el_dim))
         recorder = recorder.Recorder()
-        task = batch.FSSHTask(opt.nstep, box)
+
+        if opt.task == 'fssh':
+            task = batch.FSSHTask(opt.nstep, box)
+        elif opt.task == 'ehrenfest':
+            task = batch.EhrenfestTask(opt.nstep, box)
+
         task.load(init_state, m_model, m_integrator, recorder)
         task.run()
         
-        plot_md(recorder, m_model, box)
+        plot_md(opt.task, recorder, m_model, box)
 

@@ -16,6 +16,7 @@ class State:
         self.hopping_prob = np.zeros_like(x)
 
         self.force = np.zeros_like(self.x)
+        self.H_el = np.zeros_like(rho_el)
         self.drv_coupling = np.zeros(
             (self.rho_el.shape[0], self.rho_el.shape[1], len(self.x))
             )

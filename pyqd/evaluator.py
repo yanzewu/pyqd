@@ -16,7 +16,32 @@ class Evaluator:
     def __init__(self, model:model.Model):
         self.model = model
 
-    def update_potential(self, state:state.State):
+    def update_potential_ms(self, state:state.State):
+        """ Update the state's
+        force = tr(rho H)
+        H_el = V
+        """
+
+        if self.model.calc_energy:
+            if not self.model.multidim:
+                state.H_el = np.diag(self.model.E(state.x[0]))
+                dH = self.model.dH(state.x[0])[:,:,np.newaxis]
+            else:
+                state.H_el = np.diag(self.model.E(state.x))
+                dH = self.model.dH(state.x)
+        else:
+            if not self.model.multidim:
+                state.H_el = self.model.V(state.x[0])
+                dH = self.model.dV(state.x[0])[:,:,np.newaxis]
+            else:
+                state.H_el = self.model.V(state.x)
+                dH = self.model.dV(state.x)
+
+        for i in range(len(state.force)):
+            state.force[i] = -np.trace(state.rho_el.real.dot(dH[:,:,i])) # WARNING: this could be incorrect for complex H
+
+
+    def update_potential_ss(self, state:state.State):
         """ Update the state's
         force = -<k|dH|k>
         ad_energy = eigvals(H)
@@ -63,7 +88,7 @@ class Evaluator:
                 
                 if not self.model.multidim:
                     E[i,:] = self.model.E(x[i][0])
-                    dH = self.model.dH(x[i][0]).reshape((dH.shape[0], dH.shape[1], 1))
+                    dH = self.model.dH(x[i][0])[:,:,np.newaxis]
                 else:
                     E[i,:] = self.model.E(x[i])
                     dH = self.model.dH(x[i])
@@ -74,7 +99,7 @@ class Evaluator:
 
                 if not self.model.multidim:
                     E[i,:], ad_states = LA.eigh(self.model.V(x[i][0]))
-                    dV = dV = self.model.dV(x[i][0]).reshape((dV.shape[0], dV.shape[1], 1))
+                    dV = self.model.dV(x[i][0])[:,:,np.newaxis]
                 else:
                     E[i,:], ad_states = LA.eigh(self.model.V(x[i]))
                     dV = self.model.dV(x[i])

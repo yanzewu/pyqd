@@ -12,10 +12,14 @@ class Integrator:
         self.m_inv = 1.0/m
         self.using_ode = using_ode
 
-    def initialize(self, state:state.State):
+    def initialize(self, state:state.State, method='sh'):
         self.a = 0.0
-        self.d_new = state.drv_coupling
-        self.E_new = state.ad_energy
+
+        if method == 'sh':
+            self.d_new = state.drv_coupling
+            self.E_new = state.ad_energy
+        elif method == 'mf':
+            self.H_new = state.H_el
 
     def update_first_half(self, state:state.State):
         state.v += 0.5 * self.a * self.dt
@@ -26,7 +30,14 @@ class Integrator:
         self.a = self.m_inv * state.force
         state.v += 0.5 * self.a * self.dt
 
-    def update_el_state(self, state:state.State):
+    def update_el_state_mf(self, state:state.State):
+
+        self.H_old = self.H_new
+        self.H_new = state.H_el
+
+        self.update_el_state_by_H(state, 0.5*(self.H_old + self.H_new))
+
+    def update_el_state_sh(self, state:state.State):
 
         self.d_old = self.d_new
         self.d_new = state.drv_coupling
@@ -36,25 +47,27 @@ class Integrator:
         dv_ave = 0.5*(self.d_new.dot(state.v) + self.d_old.dot(state.v))
         E_ave = 0.5*(self.E_new + self.E_old)
 
-        H = np.diag(E_ave) - 1j * dv_ave
+        self.update_el_state_by_H(state, np.diag(E_ave) - 1j * dv_ave)
+        self.update_hopping_prob(state, dv_ave)
+
+    def update_el_state_by_H(self, state, H):
+        """ Update electronic state by Liouville equation
+        """
+
+        def _liouville(t, rho):
+            rho_ = rho.reshape(H.shape)
+            return (-1j*(H.dot(rho_) - rho_.dot(H))).flatten()
 
         if self.using_ode:
-
-            def liouville(t, rho):
-                rho_ = rho.reshape(H.shape)
-                return (-1j*(H.dot(rho_) - rho_.dot(H))).flatten()
-
-            r = complex_ode(liouville)
+            r = complex_ode(_liouville)
             r.set_initial_value(state.rho_el.flatten())
             state.rho_el = r.integrate(self.dt).reshape(H.shape)
 
         else:   # Verlet integration
             drho = -1j*(H.dot(state.rho_el) - state.rho_el.dot(H))
             rho_el_old_tmp = state.rho_el
-            state.rho_el = 2*state.rho_el - self.rho_el_old + drho*dt**2
+            state.rho_el = 2*state.rho_el - self.rho_el_old + drho*dt*dt
             self.rho_el_old = rho_el_old_tmp
-
-        self.update_hopping_prob(state, dv_ave)
 
     def update_hopping_prob(self, state, dv_ave):
         b =  - 2*(state.rho_el.conjugate() * dv_ave).real
@@ -71,7 +84,7 @@ class Integrator:
         if new_el_state != state.el_state:
             new_PE = state.ad_energy[new_el_state]
             
-            PE, KE = self.get_energy(state)
+            PE, KE = self.get_energy_ss(state)
             if new_PE - PE > KE:   # frustrated
                 pass
 
@@ -96,9 +109,14 @@ class Integrator:
 
         return False
 
-    def get_energy(self, state:state.State):
+    def get_energy_ss(self, state:state.State):
         
         return state.ad_energy[state.el_state], 0.5*(self.m*state.v).dot(state.v)
+
+    def get_energy_mf(self, state:state.State):
+
+        return np.trace(state.H_el.dot(state.rho_el)), 0.5*(self.m*state.v).dot(state.v)
+
 
 
 def outside_box(state, box):
