@@ -103,7 +103,7 @@ class Integrator:
 
 def outside_box(state, box):
     
-    return np.logical_and(state.x>box[:,1], state.v>0) or np.logical_and(state.x < box[:,0], state.v<0)
+    return np.logical_and(state.x>box[:,1], state.v>0).any() or np.logical_and(state.x < box[:,0], state.v<0).any()
 
 def outside_which_wall(state, box):
 

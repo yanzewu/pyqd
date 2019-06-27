@@ -59,7 +59,7 @@ def plot_md(recorder:recorder.Recorder, m_model, box):
     m_pe = recorder.get_data('pe')
     m_drv_coupling = recorder.get_data('drv_coupling')
 
-    x = np.linspace(box[0,0], box[0,1], 200)
+    x = np.linspace(box[0,0], box[0,1], 200)[:,np.newaxis]
     ad_energy, drv_coupling = evaluator.Evaluator(m_model).evaluate(x)
 
     plt.figure('E-x')
@@ -92,6 +92,7 @@ if __name__ == '__main__':
     parser.add_argument('--x0', default='-4', type=str, help='Start position of x')
     parser.add_argument('--m', default='2000', type=str, help='Mass')
     parser.add_argument('--model', default='sac', type=str, help='Model')
+    parser.add_argument('--args', type=str, help='Additional args to model')
     parser.add_argument('--output', default='a', type=str, help='Output name')
 
     opt = parser.parse_args()
@@ -122,6 +123,8 @@ if __name__ == '__main__':
         m_model = model.DACModel(0.1, 0.28, 0.015, 0.06, 0.05)
     elif opt.model == 'ecr':
         m_model = model.ECRModel(6e-4, 0.1, 0.9)
+    elif opt.model == 'sbm':
+        m_model = model.GenSBModel(opt.args)
 
     assert m_model.kinetic_dim == len(start_x)
 

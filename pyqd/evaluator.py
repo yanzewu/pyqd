@@ -25,7 +25,7 @@ class Evaluator:
 
         if self.model.calc_energy:
 
-            if self.model.kinetic_dim == 1:
+            if not self.model.multidim:
                 state.ad_energy = self.model.E(state.x[0])
                 dH = self.model.dH(state.x[0]).reshape((self.model.el_dim, self.model.el_dim, 1))
             else:
@@ -34,7 +34,7 @@ class Evaluator:
             
         else:   # do diagonalization myself
 
-            if self.model.kinetic_dim == 1:
+            if not self.model.multidim:
                 state.ad_energy, ad_states_new = LA.eigh(self.model.V(state.x[0]))
                 dV = self.model.dV(state.x[0]).reshape((self.model.el_dim, self.model.el_dim, 1))            
             else:
@@ -60,19 +60,24 @@ class Evaluator:
 
         if self.model.calc_energy:
             for i in range(len(x)):
-                E[i,:] = self.model.E(x[i])
-                dH = self.model.dH(x[i])
+                
+                if not self.model.multidim:
+                    E[i,:] = self.model.E(x[i][0])
+                    dH = self.model.dH(x[i][0]).reshape((dH.shape[0], dH.shape[1], 1))
+                else:
+                    E[i,:] = self.model.E(x[i])
+                    dH = self.model.dH(x[i])
 
-                if self.model.kinetic_dim == 1:
-                    dH = dH.reshape((dH.shape[0], dH.shape[1], 1))
                 D[i,:,:,:] = self._drv_coupling(dH, E[i])
         else:
             for i in range(len(x)):
-                E[i,:], ad_states = LA.eigh(self.model.V(x[i]))
-                dV = self.model.dV(x[i])
 
-                if self.model.kinetic_dim == 1:
-                    dV = dV.reshape((dV.shape[0], dV.shape[1], 1))
+                if not self.model.multidim:
+                    E[i,:], ad_states = LA.eigh(self.model.V(x[i][0]))
+                    dV = dV = self.model.dV(x[i][0]).reshape((dV.shape[0], dV.shape[1], 1))
+                else:
+                    E[i,:], ad_states = LA.eigh(self.model.V(x[i]))
+                    dV = self.model.dV(x[i])
                 
                 D[i,:,:,:] = self._drv_coupling(self._dH(dV, ad_states), E[i])     
 
