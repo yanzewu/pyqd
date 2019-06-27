@@ -94,9 +94,7 @@ class Evaluator:
         # This could be simplified using matrix multiplication
         dH = np.zeros_like(dV)
         for n in range(dV.shape[2]):
-            for i in range(dV.shape[0]):
-                for j in range(dV.shape[1]):
-                    dH[i,j,n] = ad_states[:,i].T.dot(dV[:,:,n].dot(ad_states[:,j]))
+            dH[:,:,n] = ad_states.conj().T.dot(dV[:,:,n].dot(ad_states))
 
         return dH
 

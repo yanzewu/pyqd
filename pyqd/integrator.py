@@ -110,7 +110,7 @@ def outside_which_wall(state, box):
     if (state.x > box[:,1]).any():
         return np.argwhere(state.x > box[:,1])[0]*2+1
     elif (state.x < box[:,0]).any():
-        return np.argwhere(state.x > box[:,0])[0]*2
+        return np.argwhere(state.x < box[:,0])[0]*2
     else:
         return -1
         

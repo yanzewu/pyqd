@@ -1,7 +1,9 @@
 
 import sys
+import copy
 import argparse
 import numpy as np
+import multiprocessing as mp
 
 from . import batch
 from . import integrator
@@ -15,18 +17,18 @@ def err_callback(e):
     print(e)
 
 
-def run_batch(state, model, integrator, box, nstep, seed, nbatch, nproc):
+def run_batch(m_state, m_model, m_integrator, box, nstep, seed, nbatch, nproc):
 
     state_stat = []
     mdtask = batch.FSSHTask(nstep, box)
-    mdtask.load(state, model, integrator)
+    mdtask.load(m_state, m_model, m_integrator)
 
     if nproc > 1:
 
         pool = mp.Pool(nproc)
         ret = []
         for i in range(nbatch):
-            ret.append(pool.apply_async(run_single, args=[copy.deepcopy(mdtask), seed+i], error_callback=err_callback))
+            ret.append(pool.apply_async(batch.run_single, args=[copy.deepcopy(mdtask), seed+i], error_callback=err_callback))
             
         pool.close()
         pool.join()
@@ -34,22 +36,21 @@ def run_batch(state, model, integrator, box, nstep, seed, nbatch, nproc):
         result = [r.get() for r in ret]
 
     else:
-        for i in range(nbatch):
-            result.append(run_single(copy.deepcopy(mdtask), seed+i))
+        result = [batch.run_single(copy.deepcopy(mdtask), seed+i) for i in range(nbatch)]
     
     # statistics: wall (%), state (%)
-    stat_matrix = np.zeros((box.shape[0]*2+1, model.el_dim))
+    stat_matrix = np.zeros((box.shape[0]*2+1, m_model.el_dim))
     # ROW: outside wall, COL: el_state
 
     for r in result:
         w = integrator.outside_which_wall(r[0], box)
-        e = el_state_stat[r[0].el_state]
+        e = r[0].el_state
         stat_matrix[w, e] += 1
 
     return stat_matrix
 
 
-def plot_md(recorder:recorder.Recorder, model, box):
+def plot_md(recorder:recorder.Recorder, m_model, box):
 
     import matplotlib.pyplot as plt
 
@@ -59,7 +60,7 @@ def plot_md(recorder:recorder.Recorder, model, box):
     m_drv_coupling = recorder.get_data('drv_coupling')
 
     x = np.linspace(box[0,0], box[0,1], 200)
-    ad_energy, drv_coupling = evaluator.Evaluator(model).evaluate(x)
+    ad_energy, drv_coupling = evaluator.Evaluator(m_model).evaluate(x)
 
     plt.figure('E-x')
     plt.plot(x, ad_energy[:,0], 'k--', lw=0.5, label='E0')
@@ -116,15 +117,15 @@ if __name__ == '__main__':
 
     # Tully's 3 Models
     if opt.model == 'sac':
-        model = model.SACModel(0.01, 1.6, 0.005, 1.0)
+        m_model = model.SACModel(0.01, 1.6, 0.005, 1.0)
     elif opt.model == 'dac':
-        model = model.DACModel(0.1, 0.28, 0.015, 0.06, 0.05)
+        m_model = model.DACModel(0.1, 0.28, 0.015, 0.06, 0.05)
     elif opt.model == 'ecr':
-        model = model.ECRModel(6e-4, 0.1, 0.9)
+        m_model = model.ECRModel(6e-4, 0.1, 0.9)
 
-    assert model.kinetic_dim == len(start_x)
+    assert m_model.kinetic_dim == len(start_x)
 
-    integrator = integrator.Integrator(opt.dt, m) 
+    m_integrator = integrator.Integrator(opt.dt, m) 
 
     if opt.batch != 0:
 
@@ -132,9 +133,9 @@ if __name__ == '__main__':
 
         title = 'k\tE'
         for i in range(len(box)):
-            for j in range(model.el_dim):
+            for j in range(m_model.el_dim):
                 title += '\t%dL:%d\t%dR:%d' % (i+1, j, i+1, j)
-        for j in range(model.el_dim):
+        for j in range(m_model.el_dim):
             title += '\tI:%d' % j
 
         print(title, file=fp)
@@ -142,14 +143,14 @@ if __name__ == '__main__':
             init_state = state.State(
                 start_x,
                 start_k/m,
-                state.create_pure_rho_el(model.el_dim)
+                state.create_pure_rho_el(m_model.el_dim)
                 )
 
-            KE, PE = integrator.get_energy(init_state)
+            KE, PE = m_integrator.get_energy(init_state)
             stat_matrix = run_batch(
-                state,
-                model,
-                integrator,
+                init_state,
+                m_model,
+                m_integrator,
                 box,
                 opt.nstep,
                 opt.seed,
@@ -157,20 +158,20 @@ if __name__ == '__main__':
                 opt.np
                 )
 
-            print('%.4g\t%.4g\t%s' % (k, KE+PE,
-                '\t'.join(('%.4g'%(d/opt.batch) for d in stat_matrix.flatten()))
-                ))
+            print('%.4g\t%.4g\t%s' % (start_k, KE+PE,
+                '\t'.join(('%.4g'%(d/opt.batch) for d in stat_matrix.flatten()))),
+                file=fp)
             fp.flush()
 
         fp.close()
 
     else:
         np.random.seed(opt.seed)
-        init_state = state.State(start_x, klist[0]/m, state.create_pure_rho_el(model.el_dim))
+        init_state = state.State(start_x, klist[0]/m, state.create_pure_rho_el(m_model.el_dim))
         recorder = recorder.Recorder()
         task = batch.FSSHTask(opt.nstep, box)
-        task.load(init_state, model, integrator, recorder)
+        task.load(init_state, m_model, m_integrator, recorder)
         task.run()
         
-        plot_md(recorder, model, box)
+        plot_md(recorder, m_model, box)
 
