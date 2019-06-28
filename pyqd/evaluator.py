@@ -29,7 +29,11 @@ class Evaluator:
             else:
                 state.H_el = np.diag(self.model.E(state.x))
                 dH = self.model.dH(state.x)
-        else:
+       
+            state.H_el += -1j*self._drv_coupling(dH, state.ad_energy).dot(state.v)
+            # dH may not be correct here
+
+        else:   # this is diabatic basis
             if not self.model.multidim:
                 state.H_el = self.model.V(state.x[0])
                 dH = self.model.dV(state.x[0])[:,:,np.newaxis]
@@ -108,6 +112,14 @@ class Evaluator:
 
         return E, D
         
+    def to_adiabatic(self, state):
+        """ Convert diabatic density matrix to adiabatic basis
+        """
+        if self.model.multidim:
+            _, ad_states = LA.eigh(self.model.V(state.x))
+        else:
+            _, ad_states = LA.eigh(self.model.V(state.x[0]))
+        return ad_states.T.dot(state.rho_el.dot(ad_states))
 
     def _align_ad_states(self, ad_states_new):
 

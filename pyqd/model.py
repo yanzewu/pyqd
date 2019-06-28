@@ -9,7 +9,7 @@ class Model:
         self.el_dim = el_dim                # dimension of electronic system
 
         self.calc_energy = calc_energy      # calculating energy and drv coupling by self
-        # if calc_energy is defined, using interface E(x) -> 1D array and dH(x) = <i|H|j> -> 2D array
+        # if calc_energy is defined, using interface E(x) -> 1D array and dH(x) = <i|dH|j> -> 2D array
         # otherwise, using V(x) -> 2D array and dV(x) -> 2D array
 
         self.multidim = multidim            # Supports multidimensional kinetic problem

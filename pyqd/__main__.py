@@ -17,15 +17,11 @@ def err_callback(e):
     print(e)
 
 
-def run_batch(tasktype, m_state, m_model, m_integrator, box, nstep, seed, nbatch, nproc):
+def run_batch_fssh(m_state, m_model, m_integrator, box, nstep, seed, nbatch, nproc):
 
     state_stat = []
-
-    if tasktype == 'fssh':
-        mdtask = batch.FSSHTask(nstep, box)
-    elif tasktype == 'ehrenfest':
-        mdtask == batch.EhrenfestTask(nstep, box)
         
+    mdtask = batch.FSSHTask(nstep, box)
     mdtask.load(m_state, m_model, m_integrator)
 
     if nproc > 1:
@@ -52,14 +48,31 @@ def run_batch(tasktype, m_state, m_model, m_integrator, box, nstep, seed, nbatch
         e = r[0].el_state
         stat_matrix[w, e] += 1
 
-    return stat_matrix
+    return stat_matrix/nbatch
 
+
+def run_ehrenfest(m_state, m_model, m_integrator, box, nstep):
+
+    mdtask = batch.EhrenfestTask(nstep, box)
+    mdtask.load(m_state, m_model, m_integrator)
+    result = batch.run_single(mdtask)
+    
+    # statistics: wall (%), state (%)
+    stat_matrix = np.zeros((box.shape[0]*2+1, m_model.el_dim))
+    # ROW: outside wall, COL: el_state
+     
+    result[0].rho_el = evaluator.Evaluator(m_model).to_adiabatic(result[0])
+    w = integrator.outside_which_wall(result[0], box)
+    stat_matrix[w, :] = np.diag(result[0].rho_el.real)
+
+    return stat_matrix
 
 def plot_md(tasktype, recorder:recorder.Recorder, m_model, box):
 
     import matplotlib.pyplot as plt
 
     m_x = recorder.get_data('x')
+    m_t = recorder.get_time()
     m_ke = recorder.get_data('ke')
     m_pe = recorder.get_data('pe')
 
@@ -67,7 +80,8 @@ def plot_md(tasktype, recorder:recorder.Recorder, m_model, box):
     ad_energy, drv_coupling = evaluator.Evaluator(m_model).evaluate(x)
 
     plt.figure('E-t')
-    plt.plot(recorder.get_time(), m_ke+m_pe, 'k-', lw=1, label='Energy')
+    plt.plot(m_t, m_ke+m_pe, 'k-', lw=1, label='Energy')
+    plt.plot(m_t, m_pe, 'm-', lw=1, label='PE')
     plt.legend()
 
     plt.figure('E-x')
@@ -120,12 +134,12 @@ if __name__ == '__main__':
     assert len(start_x) == klist.shape[1]
     assert len(m) == len(start_x) or len(m) == 1
 
+    if opt.task == 'fssh':
+        if opt.seed == 0:
+            from time import time
+            opt.seed = int(time())
 
-    if opt.seed == 0:
-        from time import time
-        opt.seed = int(time())
-
-    print('seed', opt.seed, file=sys.stderr)
+        print('seed', opt.seed, file=sys.stderr)
 
     # Tully's 3 Models
     if opt.model == 'sac':
@@ -143,14 +157,19 @@ if __name__ == '__main__':
 
     if opt.batch != 0:
 
-        fp = open(opt.output + '.txt', 'a')
+        if opt.output == '-':
+            fp = sys.stdout
+        else:
+            fp = open(opt.output + '.txt', 'a')
 
         title = 'k\tE'
         for i in range(len(box)):
             for j in range(m_model.el_dim):
-                title += '\t%dL:%d\t%dR:%d' % (i+1, j, i+1, j)
+                title += '\t%dL:%d' % (i+1, j)
+            for j in range(m_model.el_dim):
+                title += '\t%dR:%d' % (i+1, j)
         for j in range(m_model.el_dim):
-            title += '\tI:%d' % j
+            title += '\tN:%d' % j
 
         print(title, file=fp)
         for start_k in klist:
@@ -161,23 +180,28 @@ if __name__ == '__main__':
                 )
 
             KE, PE = m_integrator.get_energy_ss(init_state) # WARNING: this could be incorrect for mixed state.
-            stat_matrix = run_batch(
-                init_state,
-                m_model,
-                m_integrator,
-                box,
-                opt.nstep,
-                opt.seed,
-                opt.batch,
-                opt.np
-                )
+
+            if opt.task == 'fssh':
+                stat_matrix = run_batch(
+                    init_state,
+                    m_model,
+                    m_integrator,
+                    box,
+                    opt.nstep,
+                    opt.seed,
+                    opt.batch,
+                    opt.np
+                    )
+            elif opt.task == 'ehrenfest':
+                stat_matrix = run_ehrenfest(init_state, m_model, m_integrator, box, opt.nstep)
 
             print('%.4g\t%.4g\t%s' % (start_k, KE+PE,
-                '\t'.join(('%.4g'%(d/opt.batch) for d in stat_matrix.flatten()))),
+                '\t'.join(('%.4g'%d for d in stat_matrix.flatten()))),
                 file=fp)
             fp.flush()
 
-        fp.close()
+        if fp != sys.stdout:
+            fp.close()
 
     else:
         np.random.seed(opt.seed)
