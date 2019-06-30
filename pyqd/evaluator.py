@@ -41,8 +41,7 @@ class Evaluator:
                 state.H_el = self.model.V(state.x)
                 dH = self.model.dV(state.x)
 
-        for i in range(len(state.force)):
-            state.force[i] = -np.trace(state.rho_el.real.dot(dH[:,:,i])) # WARNING: this could be incorrect for complex H
+        state.force = -np.trace(state.rho_el.real.dot(dH), 0, 0, 1)
 
 
     def update_potential_ss(self, state:state.State):

@@ -51,9 +51,9 @@ def run_batch_fssh(m_state, m_model, m_integrator, box, nstep, seed, nbatch, npr
     return stat_matrix/nbatch
 
 
-def run_ehrenfest(m_state, m_model, m_integrator, box, nstep):
+def run_ehrenfest(m_state, m_model, m_integrator, box, nstep, analyze_step):
 
-    mdtask = batch.EhrenfestTask(nstep, box)
+    mdtask = batch.EhrenfestTask(nstep, box, analyze_step)
     mdtask.load(m_state, m_model, m_integrator)
     result = batch.run_single(mdtask)
     
@@ -76,18 +76,43 @@ def plot_md(tasktype, recorder:recorder.Recorder, m_model, box):
     m_ke = recorder.get_data('ke')
     m_pe = recorder.get_data('pe')
 
-    x = np.linspace(box[0,0], box[0,1], 200)[:,np.newaxis]
-    ad_energy, drv_coupling = evaluator.Evaluator(m_model).evaluate(x)
+    if tasktype == 'ehrenfest':
+        ev = evaluator.Evaluator(m_model)
+        for state in recorder.snapshots:
+            ev.to_adiabatic(state)
+
+    m_rho = recorder.get_data('rho_el')
 
     plt.figure('E-t')
     plt.plot(m_t, m_ke+m_pe, 'k-', lw=1, label='Energy')
     plt.plot(m_t, m_pe, 'm-', lw=1, label='PE')
     plt.legend()
 
+    plt.figure('x-t')
+    for j in range(min(m_x.shape[1], 4)):
+        plt.plot(m_t, m_x[:,j], lw=0.8, label='traj%d'%j)
+    plt.legend()
+
+    plt.figure('state-t')
+    if tasktype == 'fssh':
+        plt.plot(m_t, recorder.get_data('el_state'), label='El-state')
+    plt.plot(m_t, m_rho[:,0,0]**2, lw=0.8, label='P0')
+    plt.plot(m_t, m_rho[:,1,1]**2, lw=0.8, label='P1')
+    plt.legend()
+
     plt.figure('E-x')
-    plt.plot(x, ad_energy[:,0], 'k--', lw=0.5, label='E0')
-    plt.plot(x, ad_energy[:,1], 'b--', lw=0.5, label='E1')
-    plt.plot(m_x, m_pe, 'm-', lw=1, label=tasktype)
+
+    if m_model.kinetic_dim == 1:
+        x = np.linspace(box[0,0], box[0,1], 200)[:,np.newaxis]
+        ad_energy, drv_coupling = evaluator.Evaluator(m_model).evaluate(x)
+        plt.plot(x, ad_energy[:,0], 'k--', lw=0.5, label='E0')
+        plt.plot(x, ad_energy[:,1], 'b--', lw=0.5, label='E1')
+    else:
+        ad_energy = recorder.get_data('ad_energy')
+        plt.plot(m_x[:,0], ad_energy[:,0], 'k--', lw=0.5, label='E0')
+        plt.plot(m_x[:,0], ad_energy[:,1], 'b--', lw=0.5, label='E1')
+
+    plt.plot(m_x[:,0], m_pe, 'm-', lw=1, label=tasktype)
     plt.legend()
 
     if tasktype == 'fssh':
@@ -95,8 +120,9 @@ def plot_md(tasktype, recorder:recorder.Recorder, m_model, box):
         m_drv_coupling = recorder.get_data('drv_coupling')
 
         plt.figure('d-x')
-        plt.plot(x, drv_coupling[:,0,1,0], 'k--', lw=0.5, label='d12')
-        plt.plot(m_x, m_drv_coupling[:,0,1,0], 'm-', lw=1, label=tasktype)
+        if m_model.kinetic_dim == 1:
+            plt.plot(x, drv_coupling[:,0,1,0], 'k--', lw=0.5, label='d12')
+        plt.plot(m_x[:,0], m_drv_coupling[:,0,1,0], 'm-', lw=1, label=tasktype)
         plt.legend()
 
 
@@ -112,6 +138,7 @@ if __name__ == '__main__':
     parser.add_argument('--nstep', default=40000, type=int, help='Maximum step')
     parser.add_argument('--dt', default=0.5, type=float, help='Timestep')
     parser.add_argument('--box', default='-4,4', type=str, help='Simulation box')
+    parser.add_argument('--dstep', default=10, type=int, help='Analysis step')
     parser.add_argument('--seed', default=0, type=int, help='Seed')
     parser.add_argument('--k0', default='20', type=str, help='k to sample')
     parser.add_argument('--x0', default='-4', type=str, help='Start position of x')
@@ -122,10 +149,16 @@ if __name__ == '__main__':
 
     opt = parser.parse_args()
 
+    # For windows compatibility; Use $(< file) on *nix
+    if opt.x0.startswith('-'):
+        opt.x0 = open(opt.x0[1:], 'r').readlines()[0]
+    if opt.k0.startswith('-'):
+        opt.k0 = open(opt.k0[1:], 'r').readlines()[0]
+
     start_x = np.array(list(map(float, opt.x0.split(','))))
     klist = np.array([list(map(float, krow.split(','))) for krow in opt.k0.split(':')])
     m = np.array(list(map(float, opt.m.split(','))))
-    box = np.array(list(map(float, opt.box.split(',')))).reshape([len(start_x), 2])
+    box = np.array(list(map(float, opt.box.split(','))))
     print('x0', start_x, file=sys.stderr)
     print('klist', klist, file=sys.stderr)
     print('m', m, file=sys.stderr)
@@ -133,6 +166,12 @@ if __name__ == '__main__':
 
     assert len(start_x) == klist.shape[1]
     assert len(m) == len(start_x) or len(m) == 1
+
+    # Creating a cubic box
+    if len(box) == 2:
+        box = np.array([box]*len(start_x))
+    else:
+        box = box.reshape([len(start_x), 2])
 
     if opt.task == 'fssh':
         if opt.seed == 0:
@@ -193,7 +232,7 @@ if __name__ == '__main__':
                     opt.np
                     )
             elif opt.task == 'ehrenfest':
-                stat_matrix = run_ehrenfest(init_state, m_model, m_integrator, box, opt.nstep)
+                stat_matrix = run_ehrenfest(init_state, m_model, m_integrator, box, opt.nstep, opt.dstep)
 
             print('%.4g\t%.4g\t%s' % (start_k, KE+PE,
                 '\t'.join(('%.4g'%d for d in stat_matrix.flatten()))),
@@ -209,9 +248,9 @@ if __name__ == '__main__':
         recorder = recorder.Recorder()
 
         if opt.task == 'fssh':
-            task = batch.FSSHTask(opt.nstep, box)
+            task = batch.FSSHTask(opt.nstep, box, opt.dstep)
         elif opt.task == 'ehrenfest':
-            task = batch.EhrenfestTask(opt.nstep, box)
+            task = batch.EhrenfestTask(opt.nstep, box, opt.dstep)
 
         task.load(init_state, m_model, m_integrator, recorder)
         task.run()

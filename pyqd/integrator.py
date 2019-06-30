@@ -115,7 +115,7 @@ class Integrator:
 
     def get_energy_mf(self, state:state.State):
 
-        return np.trace(state.H_el.dot(state.rho_el)), 0.5*(self.m*state.v).dot(state.v)
+        return np.trace(state.H_el.dot(state.rho_el)).real, 0.5*(self.m*state.v).dot(state.v)
 
 
 

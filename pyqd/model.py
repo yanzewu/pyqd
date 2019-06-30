@@ -139,10 +139,6 @@ class GenSBModel(Model):
         return self.H0 + self.H1 * self.C1.dot(x) + np.eye(self.el_dim) * (self.C2*x).dot(x)
 
     def dV(self, x):
-
-        d = np.zeros((self.el_dim, self.el_dim, self.kinetic_dim))
-        for i in range(self.kinetic_dim):
-            d[:,:,i] = self.H1*self.C1[i] + 2*self.C2[i]*x[i]*np.eye(self.el_dim)
-
-        return d
+        
+        return self.H1[:,:,None]*self.C1[None,None,:] + (np.eye(self.el_dim))[:,:,None]*((2*self.C2*x)[None,None,:])
 

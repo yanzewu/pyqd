@@ -12,8 +12,8 @@ class State:
         self.rho_el = rho_el
         self.el_state = el_state
 
-        self.ad_energy = np.zeros_like(x)
-        self.hopping_prob = np.zeros_like(x)
+        self.ad_energy = np.zeros(len(rho_el))
+        self.hopping_prob = np.zeros(len(rho_el))
 
         self.force = np.zeros_like(self.x)
         self.H_el = np.zeros_like(rho_el)
