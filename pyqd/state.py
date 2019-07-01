@@ -23,7 +23,7 @@ class State:
 
 
 def create_pure_rho_el(dim, el_state=0):
-    rho_el = np.zeros((dim, dim))
+    rho_el = np.zeros((dim, dim), dtype=complex)
     rho_el[el_state, el_state] = 1.0
     return rho_el
 

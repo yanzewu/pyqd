@@ -5,9 +5,26 @@ import numpy.random as random
 from . import evaluator
 from . import integrator
 
+class MDTask:
+
+    def __init__(self, nstep, box, analyze_step=10):
+        self.nstep = nstep
+        self.box = box
+        self.detect_step = 10
+        self.analyze_step = analyze_step
+        self.realstep = 0
+
+    def load(self, init_state, model, integrator, recorder=None):
+        self.state = copy.deepcopy(init_state)
+        self.integrator = integrator
+        self.evaluator = evaluator.Evaluator(model)
+        self.recorder = recorder
+
+    def is_normal_terminated(self):
+        return self.realstep < self.nstep
 
 
-class FSSHTask:
+class FSSHTask(MDTask):
     """ FSSH molecular dynamics
     """
 
@@ -15,16 +32,7 @@ class FSSHTask:
         """ nstep: int;
             box: N x 2 array
         """
-        self.nstep = nstep
-        self.box = box
-        self.detect_step = 10
-        self.analyze_step = analyze_step
-
-    def load(self, init_state, model, integrator, recorder=None):
-        self.state = copy.deepcopy(init_state)
-        self.integrator = integrator
-        self.evaluator = evaluator.Evaluator(model)
-        self.recorder = recorder
+        super().__init__(nstep, box, analyze_step)
 
     def run(self):
         self.evaluator.update_potential_ss(self.state)
@@ -52,11 +60,8 @@ class FSSHTask:
             self.recorder.collect(self.state, self.integrator.dt * (n+1))
             self.recorder.collect_energy(*self.integrator.get_energy_ss(self.state))
 
-    def is_normal_terminated(self):
-        return self.realstep < self.nstep
 
-
-class EhrenfestTask:
+class EhrenfestTask(MDTask):
     """ Ehrenfest dynamics
     """
 
@@ -64,16 +69,7 @@ class EhrenfestTask:
         """ nstep: int;
             box: N x 2 array
         """
-        self.nstep = nstep
-        self.box = box
-        self.detect_step = 10
-        self.analyze_step = analyze_step
-
-    def load(self, init_state, model, integrator, recorder=None):
-        self.state = copy.deepcopy(init_state)
-        self.integrator = integrator
-        self.evaluator = evaluator.Evaluator(model)
-        self.recorder = recorder
+        super().__init__(nstep, box, analyze_step)
 
     def run(self):
         self.evaluator.update_potential_ms(self.state)
@@ -102,9 +98,6 @@ class EhrenfestTask:
         if self.recorder:
             self.recorder.collect(self.state, self.integrator.dt * n)
             self.recorder.collect_energy(PE, KE)        
-
-    def is_normal_terminated(self):
-        return self.realstep < self.nstep    
 
 
 def run_single(mdtask, seed=0):

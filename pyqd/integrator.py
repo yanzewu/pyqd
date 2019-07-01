@@ -6,7 +6,11 @@ from . import state
 
 class Integrator:
 
-    def __init__(self, dt, m, using_ode=True):
+    ODE_COMPLEX = 1
+    ODE_RK4 = 2
+    ODE_VERLET = 3
+
+    def __init__(self, dt, m, using_ode=ODE_RK4):
         self.dt = dt
         self.m = m
         self.m_inv = 1.0/m
@@ -54,20 +58,27 @@ class Integrator:
         """ Update electronic state by Liouville equation
         """
 
-        def _liouville(t, rho):
-            rho_ = rho.reshape(H.shape)
-            return (-1j*(H.dot(rho_) - rho_.dot(H))).flatten()
+        if self.using_ode == self.ODE_COMPLEX:
+            def _liouville(t, rho):
+                rho_ = rho.reshape(H.shape)
+                return -1j*((H.dot(rho_) - rho_.dot(H))).flatten()
 
-        if self.using_ode:
             r = complex_ode(_liouville)
             r.set_initial_value(state.rho_el.flatten())
             state.rho_el = r.integrate(self.dt).reshape(H.shape)
 
-        else:   # Verlet integration
-            drho = -1j*(H.dot(state.rho_el) - state.rho_el.dot(H))
+        elif self.using_ode == self.ODE_RK4:
+            dy1 = self.dt * _liouville_mat(state.rho_el, H)
+            dy2 = self.dt * _liouville_mat(state.rho_el + 0.5*dy1, H)
+            dy3 = self.dt * _liouville_mat(state.rho_el + 0.5*dy2, H)
+            dy4 = self.dt * _liouville_mat(state.rho_el + dy3, H)
+            state.rho_el += (dy1+dy2+dy3+dy4)/6
+
+        elif self.using_ode == self.ODE_VERLET:   # Verlet integration
             rho_el_old_tmp = state.rho_el
-            state.rho_el = 2*state.rho_el - self.rho_el_old + drho*dt*dt
+            state.rho_el = 2*state.rho_el - self.rho_el_old + _liouville_mat(rho, H)*dt*dt
             self.rho_el_old = rho_el_old_tmp
+
 
     def update_hopping_prob(self, state, dv_ave):
         b =  - 2*(state.rho_el.conjugate() * dv_ave).real
@@ -118,6 +129,8 @@ class Integrator:
         return np.trace(state.H_el.dot(state.rho_el)).real, 0.5*(self.m*state.v).dot(state.v)
 
 
+def _liouville_mat(rho, H):
+    return -1j*(H.dot(rho) - rho.dot(H))
 
 def outside_box(state, box):
     

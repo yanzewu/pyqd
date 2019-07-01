@@ -94,10 +94,10 @@ def plot_md(tasktype, recorder:recorder.Recorder, m_model, box):
     plt.legend()
 
     plt.figure('state-t')
+    plt.plot(m_t, m_rho[:,0,0], lw=0.8, label='P0')
+    plt.plot(m_t, m_rho[:,1,1], lw=0.8, label='P1')
     if tasktype == 'fssh':
-        plt.plot(m_t, recorder.get_data('el_state'), label='El-state')
-    plt.plot(m_t, m_rho[:,0,0]**2, lw=0.8, label='P0')
-    plt.plot(m_t, m_rho[:,1,1]**2, lw=0.8, label='P1')
+        plt.plot(m_t, recorder.get_data('el_state'), 'm-', lw=1, label='El-state')
     plt.legend()
 
     plt.figure('E-x')
@@ -150,9 +150,9 @@ if __name__ == '__main__':
     opt = parser.parse_args()
 
     # For windows compatibility; Use $(< file) on *nix
-    if opt.x0.startswith('-'):
+    if opt.x0.startswith('@'):
         opt.x0 = open(opt.x0[1:], 'r').readlines()[0]
-    if opt.k0.startswith('-'):
+    if opt.k0.startswith('@'):
         opt.k0 = open(opt.k0[1:], 'r').readlines()[0]
 
     start_x = np.array(list(map(float, opt.x0.split(','))))
