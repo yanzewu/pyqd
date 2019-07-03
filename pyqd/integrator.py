@@ -72,7 +72,7 @@ class Integrator:
             dy2 = self.dt * _liouville_mat(state.rho_el + 0.5*dy1, H)
             dy3 = self.dt * _liouville_mat(state.rho_el + 0.5*dy2, H)
             dy4 = self.dt * _liouville_mat(state.rho_el + dy3, H)
-            state.rho_el += (dy1+dy2+dy3+dy4)/6
+            state.rho_el += (dy1+2*dy2+2*dy3+dy4)/6
 
         elif self.using_ode == self.ODE_VERLET:   # Verlet integration
             rho_el_old_tmp = state.rho_el

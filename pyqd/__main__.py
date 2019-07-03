@@ -76,12 +76,16 @@ def plot_md(tasktype, recorder:recorder.Recorder, m_model, box):
     m_ke = recorder.get_data('ke')
     m_pe = recorder.get_data('pe')
 
-    if tasktype == 'ehrenfest':
-        ev = evaluator.Evaluator(m_model)
-        for state in recorder.snapshots:
-            ev.to_adiabatic(state)
+    # if tasktype == 'ehrenfest':
+    #     ev = evaluator.Evaluator(m_model)
+    #     for state in recorder.snapshots:
+    #         ev.to_adiabatic(state)
 
     m_rho = recorder.get_data('rho_el')
+
+    print('t\tP0\tP1')
+    for i in range(len(m_t)):
+        print(m_t[i], m_rho[i,0,0], m_rho[i,1,1])
 
     plt.figure('E-t')
     plt.plot(m_t, m_ke+m_pe, 'k-', lw=1, label='Energy')
