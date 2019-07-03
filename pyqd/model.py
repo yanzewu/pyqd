@@ -136,7 +136,7 @@ class GenSBModel(Model):
 
     def V(self, x):
 
-        return self.H0 + self.H1 * self.C1.dot(x) + np.eye(self.el_dim) * (self.C2*x).dot(x)
+        return self.H0 + self.H1 * self.C1.dot(x) #+ np.eye(self.el_dim) * (self.C2*x).dot(x)
 
     def dV(self, x):
         

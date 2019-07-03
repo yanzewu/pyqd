@@ -1,5 +1,6 @@
 
 import copy
+import numpy as np
 import numpy.random as random
 
 from . import evaluator
@@ -78,16 +79,34 @@ class EhrenfestTask(MDTask):
         print('t\tPE\tEtot')
         self.analyze(0)
 
+        cnorm = self.evaluator.model.H1[0,0]
+
         for n in range(self.nstep):
             self.integrator.update_first_half(self.state)    # Verlet first half
-            self.evaluator.update_potential_ms(self.state)      # Load energy, force and drv coupling
-            self.integrator.update_el_state_mf(self.state)      # ES integration
+            #self.evaluator.update_potential_ms(self.state)      # Load energy, force and drv coupling
+            
+            self.state.force = -cnorm*self.evaluator.model.C1 * (self.state.rho_el[0,0].real - self.state.rho_el[1,1].real) \
+                 - 2*self.evaluator.model.C2 * self.state.x
+
+            H = self.evaluator.model.H0.copy()
+            R = cnorm*self.evaluator.model.C1.dot(self.state.x)
+            H[0,0] += R
+            H[1,1] += -R
+            
+            self.integrator.update_el_state_by_H(self.state, H)
+
+            #self.integrator.update_el_state_mf(self.state)      # ES integration
             self.integrator.update_latter_half(self.state)   # Verlet second half
 
-            if (n+1) % self.detect_step == 0:
-                if integrator.outside_box(self.state, self.box):
-                    break
+            # if (n+1) % self.detect_step == 0:
+            #     if integrator.outside_box(self.state, self.box):
+            #         break
             if (n+1) % self.analyze_step == 0:
+                print(max(np.abs(self.state.force)))
+                print(max(np.abs(self.state.x)))
+                print(self.state.rho_el)
+                print(H)
+                #print(self.state.H_el)
                 self.analyze(n+1)
 
         self.realstep = n+1
