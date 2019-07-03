@@ -113,6 +113,7 @@ class EhrenfestTask(MDTask):
 
     def analyze(self, n):
         PE, KE = self.integrator.get_energy_mf(self.state)
+        PE += self.evaluator.model.C2.dot(self.state.x**2)
         print('%g\t%4g\t%4g' % (self.integrator.dt * n, PE, KE+PE))
         if self.recorder:
             self.recorder.collect(self.state, self.integrator.dt * n)
