@@ -13,60 +13,6 @@ from . import recorder
 from . import evaluator
 
 
-def err_callback(e):
-    print(e)
-
-
-def run_batch_fssh(m_state, m_model, m_integrator, box, nstep, seed, nbatch, nproc):
-
-    state_stat = []
-        
-    mdtask = batch.FSSHTask(nstep, box)
-    mdtask.load(m_state, m_model, m_integrator)
-
-    if nproc > 1:
-
-        pool = mp.Pool(nproc)
-        ret = []
-        for i in range(nbatch):
-            ret.append(pool.apply_async(batch.run_single, args=[copy.deepcopy(mdtask), seed+i], error_callback=err_callback))
-            
-        pool.close()
-        pool.join()
-
-        result = [r.get() for r in ret]
-
-    else:
-        result = [batch.run_single(copy.deepcopy(mdtask), seed+i) for i in range(nbatch)]
-    
-    # statistics: wall (%), state (%)
-    stat_matrix = np.zeros((box.shape[0]*2+1, m_model.el_dim))
-    # ROW: outside wall, COL: el_state
-
-    for r in result:
-        w = integrator.outside_which_wall(r[0], box)
-        e = r[0].el_state
-        stat_matrix[w, e] += 1
-
-    return stat_matrix/nbatch
-
-
-def run_ehrenfest(m_state, m_model, m_integrator, box, nstep, analyze_step):
-
-    mdtask = batch.EhrenfestTask(nstep, box, analyze_step)
-    mdtask.load(m_state, m_model, m_integrator)
-    result = batch.run_single(mdtask)
-    
-    # statistics: wall (%), state (%)
-    stat_matrix = np.zeros((box.shape[0]*2+1, m_model.el_dim))
-    # ROW: outside wall, COL: el_state
-     
-    result[0].rho_el = evaluator.Evaluator(m_model).to_adiabatic(result[0])
-    w = integrator.outside_which_wall(result[0], box)
-    stat_matrix[w, :] = np.diag(result[0].rho_el.real)
-
-    return stat_matrix
-
 def plot_md(tasktype, recorder:recorder.Recorder, m_model, box):
 
     import matplotlib.pyplot as plt
@@ -149,7 +95,8 @@ if __name__ == '__main__':
     parser.add_argument('--m', default='2000', type=str, help='Mass')
     parser.add_argument('--model', default='sac', type=str, help='Model')
     parser.add_argument('--args', type=str, help='Additional args to model')
-    parser.add_argument('--output', default='a', type=str, help='Output name')
+    parser.add_argument('--obj', default='scatter', type=str, help='Object')
+    parser.add_argument('--output', default='-', type=str, help='Output name')
 
     opt = parser.parse_args()
 
@@ -177,6 +124,7 @@ if __name__ == '__main__':
     else:
         box = box.reshape([len(start_x), 2])
 
+    # Initialize random seed
     if opt.task == 'fssh':
         if opt.seed == 0:
             from time import time
@@ -191,6 +139,8 @@ if __name__ == '__main__':
         m_model = model.DACModel(0.1, 0.28, 0.015, 0.06, 0.05)
     elif opt.model == 'ecr':
         m_model = model.ECRModel(6e-4, 0.1, 0.9)
+
+    # Spin Boson Model
     elif opt.model == 'sbm':
         m_model = model.GenSBModel(opt.args)
 
@@ -198,7 +148,8 @@ if __name__ == '__main__':
 
     m_integrator = integrator.Integrator(opt.dt, m) 
 
-    if opt.batch != 0:
+    # Scattering task
+    if opt.batch != 0 and opt.obj == 'scatter':
 
         if opt.output == '-':
             fp = sys.stdout
@@ -225,7 +176,7 @@ if __name__ == '__main__':
             KE, PE = m_integrator.get_energy_ss(init_state) # WARNING: this could be incorrect for mixed state.
 
             if opt.task == 'fssh':
-                stat_matrix = run_batch(
+                stat_matrix = batch.run_scatter_fssh(
                     init_state,
                     m_model,
                     m_integrator,
@@ -236,7 +187,7 @@ if __name__ == '__main__':
                     opt.np
                     )
             elif opt.task == 'ehrenfest':
-                stat_matrix = run_ehrenfest(init_state, m_model, m_integrator, box, opt.nstep, opt.dstep)
+                stat_matrix = batch.run_scatter_ehrenfest(init_state, m_model, m_integrator, box, opt.nstep, opt.dstep)
 
             print('%.4g\t%.4g\t%s' % (start_k, KE+PE,
                 '\t'.join(('%.4g'%d for d in stat_matrix.flatten()))),
@@ -245,6 +196,27 @@ if __name__ == '__main__':
 
         if fp != sys.stdout:
             fp.close()
+
+    elif opt.batch != 0 and opt.obj == 'population':
+
+        fp = sys.stdout if opt.output == '-' else open(opt.output + '.txt', 'w')
+        print('t' + ''.join(('\tP%d' % i for i in range(m_model.el_dim))), file=fp)
+        
+        init_state = state.State(
+            start_x,
+            klist[0]/m,
+            state.create_pure_rho_el(m_model.el_dim)
+            )
+
+        if opt.task == 'fssh':
+            t, pop = batch.run_population_fssh(init_state, m_model, m_integrator, box, opt.nstep, opt.dstep, opt.seed, opt.batch, opt.np)
+        elif opt.task == 'ehrenfest':
+            t, pop = batch.run_population_ehrenfest(init_state, m_model, m_integrator, box, opt.nstep, opt.dstep)
+
+        for t_, p_ in zip(t, pop):
+            print('%4f' % t_ + ''.join(('\t%.6f' % p__ for p__ in p_)))
+
+        fp.close()
 
     else:
         np.random.seed(opt.seed)

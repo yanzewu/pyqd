@@ -1,9 +1,12 @@
 
 import copy
+import numpy as np
 import numpy.random as random
+import multiprocessing as mp
 
 from . import evaluator
 from . import integrator
+from . import recorder
 
 class MDTask:
 
@@ -57,7 +60,7 @@ class FSSHTask(MDTask):
 
     def analyze(self, n):
         if self.recorder:
-            self.recorder.collect(self.state, self.integrator.dt * (n+1))
+            self.recorder.collect(self.state, self.integrator.dt * n)
             self.recorder.collect_energy(*self.integrator.get_energy_ss(self.state))
 
 
@@ -103,5 +106,100 @@ class EhrenfestTask(MDTask):
 def run_single(mdtask, seed=0):
     random.seed(seed)
     mdtask.run()
-    return [mdtask.state, mdtask.is_normal_terminated()]
+    return [mdtask.state, mdtask.is_normal_terminated(), mdtask.recorder]
+
+
+def run_scatter_fssh(m_state, m_model, m_integrator, box, nstep, seed, nbatch, nproc):
+
+    state_stat = []
+        
+    mdtask = FSSHTask(nstep, box)
+    mdtask.load(m_state, m_model, m_integrator)
+
+    if nproc > 1:
+
+        pool = mp.Pool(nproc)
+        ret = []
+        for i in range(nbatch):
+            ret.append(pool.apply_async(run_single, args=[copy.deepcopy(mdtask), seed+i], error_callback=err_callback))
+            
+        pool.close()
+        pool.join()
+
+        result = [r.get() for r in ret]
+
+    else:
+        result = [run_single(copy.deepcopy(mdtask), seed+i) for i in range(nbatch)]
+
+    # statistics: wall (%), state (%)
+    stat_matrix = np.zeros((box.shape[0]*2+1, m_model.el_dim))
+    # ROW: outside wall, COL: el_state
+
+    for r in result:
+        w = integrator.outside_which_wall(r[0], box)
+        e = r[0].el_state
+        stat_matrix[w, e] += 1
+
+    return stat_matrix/nbatch
+
+
+def run_population_fssh(m_state, m_model, m_integrator, box, nstep, record_step, seed, nbatch, nproc):
+
+    mdtask = FSSHTask(nstep, box, record_step)
+    mdtask.load(m_state, m_model, m_integrator, recorder.Recorder())
+
+    if nproc > 1:
+
+        pool = mp.Pool(nproc)
+        ret = []
+        for i in range(nbatch):
+            ret.append(pool.apply_async(run_single, args=[copy.deepcopy(mdtask), seed+i], error_callback=err_callback))
+            
+        pool.close()
+        pool.join()
+
+        result = [r.get() for r in ret]
+
+    else:
+        result = [run_single(copy.deepcopy(mdtask), seed+i) for i in range(nbatch)]
+
+    t = result[0][2].get_time()
+    sumpop = np.zeros((len(t), m_model.el_dim))
+
+    for r in result:
+        el_state = r[2].get_data('el_state')
+        for i, s in enumerate(el_state[:,None]):
+            sumpop[i,s] += 1
+
+    return t, sumpop / nbatch
+
+
+def run_scatter_ehrenfest(m_state, m_model, m_integrator, box, nstep, analyze_step):
+
+    mdtask = EhrenfestTask(nstep, box, analyze_step)
+    mdtask.load(m_state, m_model, m_integrator)
+    result = run_single(mdtask)
+    
+    # statistics: wall (%), state (%)
+    stat_matrix = np.zeros((box.shape[0]*2+1, m_model.el_dim))
+    # ROW: outside wall, COL: el_state
+     
+    result[0].rho_el = evaluator.Evaluator(m_model).to_adiabatic(result[0])
+    w = integrator.outside_which_wall(result[0], box)
+    stat_matrix[w, :] = np.diag(result[0].rho_el.real)
+
+    return stat_matrix
+
+
+def run_population_ehrenfest(m_state, m_model, m_integrator, box, nstep, recorder_step):
+
+    mdtask = EhrenfestTask(nstep, box, recorder_step)
+    mdtask.load(m_state, m_model, m_integrator, recorder.Recorder())
+    run_single(mdtask)
+    
+    return mdtask.recorder.get_time(), np.diagonal(mdtask.recorder.get_data('rho_el'), 0, 1, 2)
+
+
+def err_callback(e):
+    print(e)
 
