@@ -111,21 +111,31 @@ class Evaluator:
 
         return E, D
         
-    def to_adiabatic(self, state):
+    def to_adiabatic(self, rho, x):
         """ Convert diabatic density matrix to adiabatic basis
         """
         if self.model.multidim:
-            _, ad_states = LA.eigh(self.model.V(state.x))
+            _, ad_states = LA.eigh(self.model.V(x))
         else:
-            _, ad_states = LA.eigh(self.model.V(state.x[0]))
-        return ad_states.T.dot(state.rho_el.dot(ad_states))
+            _, ad_states = LA.eigh(self.model.V(x[0]))
 
-    def to_diabatic(self, state):
+        return ad_states.T.dot(rho.dot(ad_states))
+
+    def to_diabatic(self, Y, x):
+        """ Convert adiabatic state index / density matrix to diabatic basis.
+        Y:  int -> adiabatic state index;
+            array -> density matrix;
+        """
         if self.model.multidim:
-            _, ad_states = LA.eigh(self.model.V(state.x))
+            _, ad_states = LA.eigh(self.model.V(x))
         else:
-            _, ad_states = LA.eigh(self.model.V(state.x[0]))
-        return ad_states.dot(state.rho_el.dot(ad_states.T))        
+            _, ad_states = LA.eigh(self.model.V(x[0]))
+
+        if isinstance(Y, int):
+            c = ad_states[:, Y]
+            return c[:,None].dot(c[None])
+        else:
+            return ad_states.dot(Y.dot(ad_states.T))
 
     def _align_ad_states(self, ad_states_new):
 

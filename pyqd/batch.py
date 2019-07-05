@@ -148,6 +148,9 @@ def run_population_fssh(m_state, m_model, m_integrator, box, nstep, record_step,
     mdtask = FSSHTask(nstep, box, record_step)
     mdtask.load(m_state, m_model, m_integrator, recorder.Recorder())
 
+    evtmp = evaluator.Evaluator(m_model)
+    mdtask.state.rho_el = evtmp.to_adiabatic(mdtask.state.rho_el, mdtask.state.x)
+
     if nproc > 1:
 
         pool = mp.Pool(nproc)
@@ -168,14 +171,12 @@ def run_population_fssh(m_state, m_model, m_integrator, box, nstep, record_step,
 
     from .state import create_pure_rho_el
 
-    evtmp = evaluator.Evaluator(m_model)
+
 
     for r in result:
         for i, s in enumerate(r[2].snapshots):
-            rhonew = evtmp.to_diabatic(s)
-            s.rho_el = create_pure_rho_el(m_model.el_dim, s.el_state)
-            sumpop[i] += np.diagonal(evtmp.to_diabatic(s)).real
-            s.rho_el = rhonew
+            sumpop[i] += np.diag(evtmp.to_diabatic(s.el_state, s.x)).real
+            s.rho_el = evtmp.to_diabatic(s.rho_el, s.x)
             
     return t, sumpop / nbatch
 
@@ -190,7 +191,7 @@ def run_scatter_ehrenfest(m_state, m_model, m_integrator, box, nstep, analyze_st
     stat_matrix = np.zeros((box.shape[0]*2+1, m_model.el_dim))
     # ROW: outside wall, COL: el_state
      
-    result[0].rho_el = evaluator.Evaluator(m_model).to_adiabatic(result[0])
+    rho_ad = evaluator.Evaluator(m_model).to_adiabatic(result[0].rho_el, result[0].x)
     w = integrator.outside_which_wall(result[0], box)
     stat_matrix[w, :] = np.diag(result[0].rho_el.real)
 
@@ -203,7 +204,7 @@ def run_population_ehrenfest(m_state, m_model, m_integrator, box, nstep, recorde
     mdtask.load(m_state, m_model, m_integrator, recorder.Recorder())
     run_single(mdtask)
     
-    return mdtask.recorder.get_time(), np.diagonal(mdtask.recorder.get_data('rho_el'), 0, 1, 2)
+    return mdtask.recorder.get_time(), np.diagonal(mdtask.recorder.get_data('rho_el'), 0, 1, 2).real
 
 
 def err_callback(e):
