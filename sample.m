@@ -1,6 +1,6 @@
 function [omegaj, cj] = sample(eta, omegac, N)
 
-omegamax=100*omegac;
+omegamax=omegac;
 
 %plot
 omega=0:.1:omegamax;

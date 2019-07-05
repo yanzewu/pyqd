@@ -1,4 +1,4 @@
-function sbm(file_prefix, step, dt)
+function sbm(step, dt)
 
 % Default variables
 
@@ -6,60 +6,60 @@ function sbm(file_prefix, step, dt)
         dt = 1e-2;
     end
     
-    file_model = fopen(strcat(file_prefix, '-model.txt'), 'r');
-    fgetl(file_model);  % H=
-    lineH = fgetl(file_model);  fgetl(file_model); fgetl(file_model);  % C1=
-    lineC1 = fgetl(file_model); fgetl(file_model);
-    lineC2 = fgetl(file_model);
-    
-    file_x0 = fopen(strcat(file_prefix, '-x.txt'), 'r');
-    linex0 = fgetl(file_x0);
-    
-    file_k0 = fopen(strcat(file_prefix, '-p.txt'), 'r');
-    linek0 = fgetl(file_k0);
-    
-    fclose('all');
-    
-    lineH = strrep(lineH, ',', ' ');
-    lineH = strrep(lineH, 'Q', '');
-    
-    A = str2num(lineH);
-    dE = A(1);
-    cnorm = A(2);
-    V = A(3);
-    
-    %C1 = str2num(lineC1) * cnorm;
-    %C2 = str2num(lineC2);
-    
+
     eta = 0.5;
-    cutoff = 0.25;
-    T = 2;
+    cutoff = 1;
+    T = 0.1;
+    V = 1;
     
-    [w, C1] = sample(eta, cutoff, 500);
-    
-    %w = rand([1,1000])*(cutoff*8-0.01)+0.01;
-    %J = eta*cutoff*w./(w.^2+cutoff.^2);
+    [w, C1] = sample(eta, cutoff, 100);
+    w = 1;
+    C1 = 1;
     
     N = numel(w);
-    %g = N/(cutoff*8-0.01);
-    %C1 = sqrt(2*w.*J./pi/g);
-    C2 = 0.5*w.^2;
-    
-    %x0 = str2num(strrep(linex0, ',', ' '));
-    %k0 = str2num(strrep(linek0, ',', ' '));
-    
-    %x0 = randn([1,N])*sqrt(T)./w;
-    %k0 = randn([1,N])*sqrt(T);
     
     x0 = randn([1,N])./sqrt(2*w.*tanh(w/2/T));
     k0 = randn([1,N]).*sqrt(w./2./tanh(w/2/T));
+    x0 = 1;
+    k0 = 0;
 
-    m_evolve = @(~, Y) evolve(Y, V, C1.', C2.'*2);
+    m_evolve = @(~, Y) evolve(Y, V, C1.', w.'.^2);
     
-    [t, y] = ode113(m_evolve, 0:dt:dt*step, [1.0,0.0,0.0,x0,k0].');
+    options = odeset('RelTol', 1e-10, 'AbsTol', 1e-10);
+    [t, y] = ode45(m_evolve, 0:dt:dt*step, [1.0,0.0,0.0,x0,k0].', options);
    
-    plot(t, y(:,1));
+    plot(t, real(y(:,1)));
+    xlabel('t')
+    ylabel('\rho_{11}-\rho_{22}')
     
+    return
+    
+    % Energy
+    E = zeros(numel(t),1);
+    for j = 1:numel(t)
+        rho11m22 = y(j,1);
+        rho12p21 = y(j,3);
+        x = y(j, 4:N+3);
+        v = y(j, N+4:N*2+3);
+        E(j) = rho11m22*dot(C1,x) + rho12p21*V + 0.5*dot(w.^2,x.^2) + 0.5*dot(v,v);
+    end
+    
+    figure(2);
+    plot(t, E);
+    
+    % Position
+    figure(3);
+    hold on
+    for j = 1:N
+        plot(t, y(:, 3+j));
+    end
+    
+    % Momentum
+    figure(4);
+    hold on
+    for j = 1:N
+        plot(t, y(:, 3+N+j));
+    end
 end
 
 function dY = evolve(Y, V, C, w2)
@@ -73,12 +73,12 @@ function dY = evolve(Y, V, C, w2)
     x = Y(4:N+3);
     v = Y(N+4:N*2+3);
 
-    R = dot(C, x);
+    y = dot(C, x);
     
     dY = zeros(size(Y));
-    dY(1) = -2i*V*rho12m21;
-    dY(2) = -2i*(V*rho11m22 - R*rho12p21);
-    dY(3) = 2i*(rho12m21*R);
+    dY(1) = 2i*V*rho12m21;
+    dY(2) = 2i*(V*rho11m22 - y*rho12p21);
+    dY(3) = -2i*(rho12m21*y);
     dY(4:N+3) = v;
     dY(N+4:N*2+3) = -rho11m22.*C - w2.*x;
     
