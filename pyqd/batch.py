@@ -166,11 +166,17 @@ def run_population_fssh(m_state, m_model, m_integrator, box, nstep, record_step,
     t = result[0][2].get_time()
     sumpop = np.zeros((len(t), m_model.el_dim))
 
-    for r in result:
-        el_state = r[2].get_data('el_state')
-        for i, s in enumerate(el_state[:,None]):
-            sumpop[i,s] += 1
+    from .state import create_pure_rho_el
 
+    evtmp = evaluator.Evaluator(m_model)
+
+    for r in result:
+        for i, s in enumerate(r[2].snapshots):
+            rhonew = evtmp.to_diabatic(s)
+            s.rho_el = create_pure_rho_el(m_model.el_dim, s.el_state)
+            sumpop[i] += np.diagonal(evtmp.to_diabatic(s)).real
+            s.rho_el = rhonew
+            
     return t, sumpop / nbatch
 
 

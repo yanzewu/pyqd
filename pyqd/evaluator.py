@@ -120,6 +120,13 @@ class Evaluator:
             _, ad_states = LA.eigh(self.model.V(state.x[0]))
         return ad_states.T.dot(state.rho_el.dot(ad_states))
 
+    def to_diabatic(self, state):
+        if self.model.multidim:
+            _, ad_states = LA.eigh(self.model.V(state.x))
+        else:
+            _, ad_states = LA.eigh(self.model.V(state.x[0]))
+        return ad_states.dot(state.rho_el.dot(ad_states.T))        
+
     def _align_ad_states(self, ad_states_new):
 
         ad_states = np.zeros_like(ad_states_new)

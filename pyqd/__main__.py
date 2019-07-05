@@ -26,6 +26,10 @@ def plot_md(tasktype, recorder:recorder.Recorder, m_model, box):
     #     ev = evaluator.Evaluator(m_model)
     #     for state in recorder.snapshots:
     #         ev.to_adiabatic(state)
+    ev = evaluator.Evaluator(m_model)
+    if tasktype == 'fssh':
+        for i, s in enumerate(recorder.snapshots):
+            s.rho_el = ev.to_diabatic(s)
 
     m_rho = recorder.get_data('rho_el')
 
