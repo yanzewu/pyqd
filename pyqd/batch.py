@@ -110,6 +110,8 @@ def run_single(mdtask, seed=0):
 
 
 def run_scatter_fssh(m_state, m_model, m_integrator, box, nstep, seed, nbatch, nproc):
+    """ Run a scattering task with FSSH. State is initiated on adiabatic surface.
+    """
 
     state_stat = []
         
@@ -144,19 +146,24 @@ def run_scatter_fssh(m_state, m_model, m_integrator, box, nstep, seed, nbatch, n
 
 
 def run_population_fssh(m_state, m_model, m_integrator, box, nstep, record_step, seed, nbatch, nproc):
+    """ Run a population task with FSSH. State is initiated on diabatic surface.
+    Returns time and population evolution.
+    """
 
     mdtask = FSSHTask(nstep, box, record_step)
     mdtask.load(m_state, m_model, m_integrator, recorder.Recorder())
 
     evtmp = evaluator.Evaluator(m_model)
-    mdtask.state.rho_el = evtmp.to_adiabatic(mdtask.state.rho_el, mdtask.state.x)
+    init_state_list = evtmp.sample_adiabatic_states(m_state, nbatch)    # random initialize
 
     if nproc > 1:
 
         pool = mp.Pool(nproc)
         ret = []
         for i in range(nbatch):
-            ret.append(pool.apply_async(run_single, args=[copy.deepcopy(mdtask), seed+i], error_callback=err_callback))
+            m_mdtask = copy.deepcopy(mdtask)
+            m_mdtask.state = init_state_list[i]
+            ret.append(pool.apply_async(run_single, args=[m_mdtask, seed+i], error_callback=err_callback))
             
         pool.close()
         pool.join()
@@ -164,41 +171,49 @@ def run_population_fssh(m_state, m_model, m_integrator, box, nstep, record_step,
         result = [r.get() for r in ret]
 
     else:
-        result = [run_single(copy.deepcopy(mdtask), seed+i) for i in range(nbatch)]
+        result = []
+        for i in range(nbatch):
+            m_mdtask = copy.deepcopy(mdtask)
+            m_mdtask.state = init_state_list[i]
+            result.append(run_single(copy.deepcopy(m_mdtask), seed+i))
 
     t = result[0][2].get_time()
     sumpop = np.zeros((len(t), m_model.el_dim))
 
-    from .state import create_pure_rho_el
-
-
-
     for r in result:
         for i, s in enumerate(r[2].snapshots):
-            sumpop[i] += np.diag(evtmp.to_diabatic(s.el_state, s.x)).real
-            s.rho_el = evtmp.to_diabatic(s.rho_el, s.x)
+            psi = evtmp.recover_diabatic_state(s)
+            sumpop[i] += np.abs(psi)**2
             
     return t, sumpop / nbatch
 
 
 def run_scatter_ehrenfest(m_state, m_model, m_integrator, box, nstep, analyze_step):
+    """ Run a scattering task with Ehrenfest dynamics. State is initiated on adiabatic surface.
+    """
+
+    evtmp = evaluator.Evaluator(m_model)
 
     mdtask = EhrenfestTask(nstep, box, analyze_step)
     mdtask.load(m_state, m_model, m_integrator)
-    result = run_single(mdtask)
+    mdtask.state.rho_el = evtmp.to_diabatic(mdtask.state.rho_el, mdtask.state.x)
+    fstate = run_single(mdtask)[0]
     
     # statistics: wall (%), state (%)
     stat_matrix = np.zeros((box.shape[0]*2+1, m_model.el_dim))
     # ROW: outside wall, COL: el_state
      
-    rho_ad = evaluator.Evaluator(m_model).to_adiabatic(result[0].rho_el, result[0].x)
-    w = integrator.outside_which_wall(result[0], box)
-    stat_matrix[w, :] = np.diag(result[0].rho_el.real)
+    fstate.rho_el = evtmp.to_adiabatic(fstate.rho_el, fstate.x)
+    w = integrator.outside_which_wall(fstate, box)
+    stat_matrix[w, :] = np.diag(fstate.rho_el.real)
 
     return stat_matrix
 
 
 def run_population_ehrenfest(m_state, m_model, m_integrator, box, nstep, recorder_step):
+    """ Run a scattering task with Ehrenfest dynamics. State is initiated on diabatic surface.
+    Returns time and population evolution.
+    """
 
     mdtask = EhrenfestTask(nstep, box, recorder_step)
     mdtask.load(m_state, m_model, m_integrator, recorder.Recorder())

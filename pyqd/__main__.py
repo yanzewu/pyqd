@@ -21,21 +21,7 @@ def plot_md(tasktype, recorder:recorder.Recorder, m_model, box):
     m_t = recorder.get_time()
     m_ke = recorder.get_data('ke')
     m_pe = recorder.get_data('pe')
-
-    # if tasktype == 'ehrenfest':
-    #     ev = evaluator.Evaluator(m_model)
-    #     for state in recorder.snapshots:
-    #         ev.to_adiabatic(state)
-    ev = evaluator.Evaluator(m_model)
-    if tasktype == 'fssh':
-        for i, s in enumerate(recorder.snapshots):
-            s.rho_el = ev.to_diabatic(s)
-
     m_rho = recorder.get_data('rho_el')
-
-    print('t\tP0\tP1')
-    for i in range(len(m_t)):
-        print(m_t[i], m_rho[i,0,0], m_rho[i,1,1])
 
     plt.figure('E-t')
     plt.plot(m_t, m_ke+m_pe, 'k-', lw=1, label='Energy')
@@ -50,14 +36,12 @@ def plot_md(tasktype, recorder:recorder.Recorder, m_model, box):
     plt.figure('state-t')
     plt.plot(m_t, m_rho[:,0,0], lw=0.8, label='P0')
     plt.plot(m_t, m_rho[:,1,1], lw=0.8, label='P1')
-    if tasktype == 'fssh':
-        plt.plot(m_t, recorder.get_data('el_state'), 'm-', lw=1, label='El-state')
     plt.legend()
 
     plt.figure('E-x')
 
     if m_model.kinetic_dim == 1:
-        x = np.linspace(box[0,0], box[0,1], 200)[:,np.newaxis]
+        x = np.linspace(min(m_x[:,0]), max(m_x[:,0]), 200)[:,np.newaxis]
         ad_energy, drv_coupling = evaluator.Evaluator(m_model).evaluate(x)
         plt.plot(x, ad_energy[:,0], 'k--', lw=0.5, label='E0')
         plt.plot(x, ad_energy[:,1], 'b--', lw=0.5, label='E1')
@@ -202,9 +186,6 @@ if __name__ == '__main__':
             fp.close()
 
     elif opt.batch != 0 and opt.obj == 'population':
-
-        fp = sys.stdout if opt.output == '-' else open(opt.output + '.txt', 'w')
-        print('t' + ''.join(('\tP%d' % i for i in range(m_model.el_dim))), file=fp)
         
         init_state = state.State(
             start_x,
@@ -217,8 +198,10 @@ if __name__ == '__main__':
         elif opt.task == 'ehrenfest':
             t, pop = batch.run_population_ehrenfest(init_state, m_model, m_integrator, box, opt.nstep, opt.dstep)
 
+        fp = sys.stdout if opt.output == '-' else open(opt.output + '.txt', 'w')
+        print('t' + ''.join(('\tP%d' % i for i in range(m_model.el_dim))), file=fp)
         for t_, p_ in zip(t, pop):
-            print('%4f' % t_ + ''.join(('\t%.6f' % p__ for p__ in p_)))
+            print('%4f' % t_ + ''.join(('\t%.6f' % p__ for p__ in p_)), file=fp)
 
         fp.close()
 
@@ -226,14 +209,33 @@ if __name__ == '__main__':
         np.random.seed(opt.seed)
         init_state = state.State(start_x, klist[0]/m, state.create_pure_rho_el(m_model.el_dim))
         recorder = recorder.Recorder()
+        m_evaluator = evaluator.Evaluator(m_model)
 
         if opt.task == 'fssh':
+            if opt.obj == 'population':
+                init_state = m_evaluator.sample_adiabatic_states(init_state, 1)[0]
             task = batch.FSSHTask(opt.nstep, box, opt.dstep)
         elif opt.task == 'ehrenfest':
+            if opt.obj == 'scatter':
+                init_state.rho_el = m_evaluator.to_diabatic(init_state.rho_el, init_state.x)
             task = batch.EhrenfestTask(opt.nstep, box, opt.dstep)
 
         task.load(init_state, m_model, m_integrator, recorder)
         task.run()
         
+        if opt.obj == 'population':
+            if opt.task == 'fssh':
+                for i, s in enumerate(recorder.snapshots):
+                    m_evaluator.recover_diabatic_state(s)
+        
+            pop = np.diagonal(recorder.get_data('rho_el'), 0, 1, 2).real
+            print('t' + ''.join(('\tP%d' % i for i in range(m_model.el_dim))))
+            for t_, p_ in zip(recorder.get_time(), pop):
+                print('%4f' % t_ + ''.join(('\t%.6f' % p__ for p__ in p_)))
+
+        elif opt.obj == 'scatter' and opt.task == 'ehrenfest':
+            for i, s in enumerate(recorder.snapshots):
+                s.rho_el = m_evaluator.to_adiabatic(s.rho_el, s.x)
+
         plot_md(opt.task, recorder, m_model, box)
 

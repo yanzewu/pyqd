@@ -168,3 +168,35 @@ class Evaluator:
             d[:,:,n] -= d[:,:,n].T
             
         return d
+
+    def sample_adiabatic_states(self, state, N, keep_rho=True):
+        """ Convert the state's diabatic density matrix to adiabatic basis,
+        and change the el_state according to population.
+        Returns a list of duplicates of the state given.
+        """
+        import copy
+
+        rho_ad = self.to_adiabatic(state.rho_el, state.x)
+        sum_pop = np.cumsum(np.diag(rho_ad.real))
+
+        dupstates = []
+        for i in range(N):
+            statenew = copy.deepcopy(state)
+            statenew.rho_el = rho_ad.copy()
+            statenew.el_state = np.searchsorted(sum_pop, i/N)
+            dupstates.append(statenew)
+
+        return dupstates
+
+    def recover_diabatic_state(self, state):
+        """ Convert the state's adiabatic density matrix to diabatic basis;
+        Return the vector corresponding to the state's electronic state in
+        diabatic basis.
+        """
+        if self.model.multidim:
+            _, ad_states = LA.eigh(self.model.V(state.x))
+        else:
+            _, ad_states = LA.eigh(self.model.V(state.x[0]))
+
+        state.rho_el = ad_states.dot(state.rho_el.dot(ad_states.T.conj()))
+        return ad_states[:, state.el_state]
