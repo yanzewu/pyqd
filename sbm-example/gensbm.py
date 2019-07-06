@@ -39,17 +39,15 @@ class SBM:
         bias: Initial location bias, -1 ~ 1
         Please set 'np.random.seed' to get repeated results.
         """
-        #sigma_x = 1.0/np.sqrt(2*self.w*np.tanh(self.w/2/T))
-        #sigma_k = np.sqrt(self.w/2/np.tanh(self.w/2/T))
-        sigma_x = np.sqrt(T)/self.w
-        sigma_k = np.ones(len(self.w)) * np.sqrt(T)
+        sigma_x = 1.0/np.sqrt(2*self.w*np.tanh(self.w/2/T))
+        sigma_k = np.sqrt(self.w/2/np.tanh(self.w/2/T))
 
         bias_x = bias * self.c/self.w**2
 
         self.x0 = np.array([np.random.normal(bias_x[i], sigma_x[i]) for i in range(len(sigma_x))])
         self.k0 = np.array([np.random.normal(0.0, sigma_k[i]) for i in range(len(sigma_k))])
 
-    def generate(self, eta, wc, N=100, spectrum='debye', wmax=50, plot=True):
+    def generate(self, eta, wc, N=100, spectrum='debye', wmax=100, plot=True):
         """ 
         spectrum = 'debye'/'ohm'
         dE need to be set additionally.

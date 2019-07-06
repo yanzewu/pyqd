@@ -100,25 +100,29 @@ class Integrator:
                 pass
 
             else:
-                d = 0.5*(self.d_old[state.el_state, new_el_state] + self.d_new[state.el_state, new_el_state])
-
-                # Solve equation 0.5*\sum_i{m_i*{v_i-d_i*scale}^2} = new_KE
-                _eq_a = 0.5*(self.m*d).dot(d)
-                _eq_b = (self.m*d).dot(state.v)
-                _eq_c = new_PE - PE
-                _eq_delta = np.sqrt(_eq_b*_eq_b - 4*_eq_a*_eq_c)
-
-                scale = (-_eq_b + _eq_delta)/_eq_a * 0.5
-                scale2 = (-_eq_b - _eq_delta)/_eq_a * 0.5
-
-                if abs(scale2) < abs(scale):
-                    scale = scale2
-
-                state.v += scale * d
+                old_el_state = state.el_state
                 state.el_state = new_el_state
-                return True
+                return old_el_state
 
-        return False
+        return None
+
+    def scale_velocity(self, state:state.State, old_el_state):
+        
+        d = 0.5*(self.d_old[old_el_state, state.el_state] + self.d_new[old_el_state, state.el_state])
+
+        # Solve equation 0.5*\sum_i{m_i*{v_i-d_i*scale}^2} = new_KE
+        _eq_a = 0.5*(self.m*d).dot(d)
+        _eq_b = (self.m*d).dot(state.v)
+        _eq_c = state.ad_energy[state.el_state] - state.ad_energy[old_el_state]
+        _eq_delta = np.sqrt(_eq_b*_eq_b - 4*_eq_a*_eq_c)
+
+        scale = (-_eq_b + _eq_delta)/_eq_a * 0.5
+        scale2 = (-_eq_b - _eq_delta)/_eq_a * 0.5
+
+        if abs(scale2) < abs(scale):
+            scale = scale2
+
+        state.v += scale * d
 
     def get_energy_ss(self, state:state.State):
         

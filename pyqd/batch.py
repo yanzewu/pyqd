@@ -47,8 +47,15 @@ class FSSHTask(MDTask):
             self.integrator.update_first_half(self.state)    # Verlet first half
             self.evaluator.update_potential_ss(self.state)      # Load energy, force and drv coupling
             self.integrator.update_el_state_sh(self.state)      # ES integration
-            self.integrator.update_latter_half(self.state)   # Verlet second half
-            self.integrator.try_hop(self.state)
+            old_el_state = self.integrator.try_hop(self.state)
+            if old_el_state is None:
+                self.integrator.update_latter_half(self.state)   # Verlet second half
+            else:
+                f_old = self.state.force
+                self.evaluator.refresh_force_ss(self.state)
+                self.state.force = 0.5 * (self.state.force + f_old)
+                self.integrator.update_latter_half(self.state)
+                self.integrator.scale_velocity(self.state, old_el_state)
 
             if (n+1) % self.detect_step == 0:
                 if integrator.outside_box(self.state, self.box):
@@ -75,16 +82,18 @@ class EhrenfestTask(MDTask):
         super().__init__(nstep, box, analyze_step)
 
     def run(self):
-        self.evaluator.update_potential_ms(self.state)
+        self.evaluator.update_potential_ms_first_half(self.state)
         self.integrator.initialize(self.state, 'mf')   # Initialize cache
+        self.evaluator.update_potential_ms_latter_half(self.state)
 
         print('t\tPE\tEtot')
         self.analyze(0)
 
         for n in range(self.nstep):
             self.integrator.update_first_half(self.state)    # Verlet first half
-            self.evaluator.update_potential_ms(self.state)      # Load energy, force and drv coupling
+            self.evaluator.update_potential_ms_first_half(self.state)
             self.integrator.update_el_state_mf(self.state)      # ES integration
+            self.evaluator.update_potential_ms_latter_half(self.state)  # Calculate force
             self.integrator.update_latter_half(self.state)   # Verlet second half
 
             if (n+1) % self.detect_step == 0:
@@ -100,7 +109,7 @@ class EhrenfestTask(MDTask):
         print('%g\t%4g\t%4g' % (self.integrator.dt * n, PE, KE+PE))
         if self.recorder:
             self.recorder.collect(self.state, self.integrator.dt * n)
-            self.recorder.collect_energy(PE, KE)        
+            self.recorder.collect_energy(PE, KE)
 
 
 def run_single(mdtask, seed=0):

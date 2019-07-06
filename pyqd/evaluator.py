@@ -16,7 +16,7 @@ class Evaluator:
     def __init__(self, model:model.Model):
         self.model = model
 
-    def update_potential_ms(self, state:state.State):
+    def update_potential_ms_first_half(self, state:state.State):
         """ Update the state's
         force = tr(rho H)
         H_el = V
@@ -41,8 +41,11 @@ class Evaluator:
                 state.H_el = self.model.V(state.x)
                 dH = self.model.dV(state.x)
 
-        state.force = -np.trace(state.rho_el.real.dot(dH), 0, 0, 1)
+        self.dH_tmp = dH
 
+    def update_potential_ms_latter_half(self, state:state.State):
+        # May not be correct for intrinsic complex Hamiltonian
+        state.force = -np.trace(state.rho_el.real.dot(self.dH_tmp), 0, 0, 1)
 
     def update_potential_ss(self, state:state.State):
         """ Update the state's
@@ -77,9 +80,12 @@ class Evaluator:
 
             dH = self._dH(dV, ad_states)
         
+        self.dH_tmp = dH
         state.force = -dH[state.el_state, state.el_state]
         state.drv_coupling = self._drv_coupling(dH, state.ad_energy)
         
+    def refresh_force_ss(self, state:state.State):
+        state.force = -self.dH_tmp[state.el_state, state.el_state]
 
     def evaluate(self, x):
         
