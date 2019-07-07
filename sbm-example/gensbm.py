@@ -59,9 +59,13 @@ class SBM:
             # CDF = 2/\pi * atan(w/wc); w > 0
             # INV CDF = wc * tan(\pi*x/2)
             
-            _generator = lambda sz: wc*np.tan(np.random.uniform(size=sz) * np.pi/2)
-            _prob = lambda w: 2*N/np.pi * wc/(w**2 + wc**2)
-            _c_coeff = np.sqrt(eta / N)
+            # _generator = lambda sz: wc*np.tan(np.random.uniform(size=sz) * np.pi/2)
+            # _prob = lambda w: 2*N/np.pi * wc/(w**2 + wc**2)
+            # _c_generator = lambda w:np.sqrt(eta / N)*w
+            _generator = lambda sz: np.arange(1,sz+1)**2/sz**2*(wmax*wc)
+            _prob = lambda w:0.5*N/np.sqrt(w*wmax*wc)
+            _J = lambda w:eta*w*wc/(w**2+wc**2)
+            _c_generator = lambda w:_J(w)*2/np.pi/_prob(w)*w
 
         elif spectrum == 'ohm':
             # J = \eta * w * exp(-w/wc)
@@ -71,11 +75,11 @@ class SBM:
 
             _generator = lambda sz: -wc*np.log(1 - np.random.uniform(size=sz))
             _prob = lambda w: N*np.exp(-w/wc) / wc
-            _c_coeff = np.sqrt(2*eta*wc/np.pi / N)
+            _c_generator = lambda w: np.sqrt(2*eta*wc/np.pi / N)*w
 
         w1 = _generator(N)
         while 1:
-            w1 = w1[w1 < wmax*wc]
+            w1 = w1[w1 <= wmax*wc]
             if len(w1) == N:
                 break
             else:
@@ -83,7 +87,7 @@ class SBM:
                 w1 = np.concatenate((w1, w2))
 
         self.w = w1
-        self.c = _c_coeff * self.w
+        self.c = _c_generator(self.w)
 
         if plot:
             try:

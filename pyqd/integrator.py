@@ -17,7 +17,7 @@ class Integrator:
         self.using_ode = using_ode
 
     def initialize(self, state:state.State, method='sh'):
-        self.a = 0.0
+        self.a = state.force * self.m_inv
 
         if method == 'sh':
             self.d_new = state.drv_coupling

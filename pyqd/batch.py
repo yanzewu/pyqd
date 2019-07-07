@@ -83,8 +83,8 @@ class EhrenfestTask(MDTask):
 
     def run(self):
         self.evaluator.update_potential_ms_first_half(self.state)
-        self.integrator.initialize(self.state, 'mf')   # Initialize cache
         self.evaluator.update_potential_ms_latter_half(self.state)
+        self.integrator.initialize(self.state, 'mf')   # Initialize cache
 
         print('t\tPE\tEtot')
         self.analyze(0)
