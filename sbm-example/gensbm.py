@@ -65,7 +65,7 @@ class SBM:
             _generator = lambda sz: np.arange(1,sz+1)**2/sz**2*(wmax*wc)
             _prob = lambda w:0.5*N/np.sqrt(w*wmax*wc)
             _J = lambda w:eta*w*wc/(w**2+wc**2)
-            _c_generator = lambda w:_J(w)*2/np.pi/_prob(w)*w
+            _c_generator = lambda w:np.sqrt(_J(w)*2/np.pi/_prob(w)*w)
 
         elif spectrum == 'ohm':
             # J = \eta * w * exp(-w/wc)
