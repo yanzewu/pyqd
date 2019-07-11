@@ -122,6 +122,7 @@ class GeneralSBM:
 
         self.x0 = sbm.x0
         self.k0 = sbm.k0
+        self.Elist = []
 
     def load_file(self, filename_prefix):
         """ Load model file, x, k file.
@@ -136,16 +137,29 @@ class GeneralSBM:
 
         for i in range(1, el_dim+1):
             linesplit = [w.split(',') for w in lines[i].split()]
-            self.H0[i-1] = np.array([float(w[0]) for w in linesplit])
-            self.H1[i-1] = np.array([float(w[1][:-1]) if len(w) > 1 else 0.0 for w in linesplit])
+            self.H0[i-1, :] = np.array([float(w[0]) for w in linesplit])
+            self.H1[i-1, :] = np.array([float(w[1][:-1]) if len(w) > 1 else 0.0 for w in linesplit])
 
         self.C1 = np.array([float(c) for c in lines[el_dim+2].split()])
         self.C2 = np.array([float(c) for c in lines[el_dim+4].split()])
 
-        self.x0 = np.array(list(map(float, open(filename_prefix + '-x.txt', 'r').readlines()[0].split(','))))
-        self.k0 = np.array(list(map(float, open(filename_prefix + '-k.txt', 'r').readlines()[0].split(','))))
+        self.Elist = []
+        numqmode = 0
+        if len(lines) > el_dim+6:
+            i = 0
+            while numqmode < el_dim/2:
+                self.Elist.append(np.array([float(c) for c in lines[el_dim+6+i].split()]))
+                i += 1
+                numqmode += len(self.Elist[-1])
 
-    def write_file(self, filename_prefix):
+        try:
+            self.x0 = np.array(list(map(float, open(filename_prefix + '-x.txt', 'r').readlines()[0].split(','))))
+            self.k0 = np.array(list(map(float, open(filename_prefix + '-k.txt', 'r').readlines()[0].split(','))))
+        except IOError:
+            self.x0 = np.zeros_like(self.C1)
+            self.k0 = np.zeros_like(self.C2)
+
+    def write_file(self, filename_prefix, write_initial_cond):
 
         fp = open(filename_prefix + '-model.txt', 'w')
         fp.write('H=\n')
@@ -160,19 +174,25 @@ class GeneralSBM:
                     fp.write('\t')
             fp.write('\n')
         
-        fp.write('C1=\n')
+        fp.write('C=\n')
         fp.write('\t'.join((str(c) for c in self.C1)))
-        fp.write('\nC2=\n')
+        fp.write('\nomega^2/2=\n')
         fp.write('\t'.join((str(c) for c in self.C2)))
-        fp.write('\n')
-        
+        fp.write('\nElist=\n')
+        for E in self.Elist:
+            fp.write('\t'.join((str(c) for c in E)))
+            fp.write('\n')
         fp.close()
 
-        open(filename_prefix + '-x.txt', 'w').write(','.join(list(map(str, self.x0))))
-        open(filename_prefix + '-p.txt', 'w').write(','.join(list(map(str, self.k0))))
+        if write_initial_cond:
+            open(filename_prefix + '-x.txt', 'w').write(','.join(list(map(str, self.x0))))
+            open(filename_prefix + '-p.txt', 'w').write(','.join(list(map(str, self.k0))))
 
-    def primary_quantize(self, nlevel):
+    def primary_quantize(self, nlevel, T=0.0):
         
+        if len(self.C1) == 1:
+            self.fix_single_mode()
+
         W = np.diag(self.C2)*2  # recover 1/2 factor, since it is included in C2
 
         normC = np.linalg.norm(self.C1)
@@ -185,9 +205,10 @@ class GeneralSBM:
         # Quantize the first mode
         omega = np.sqrt(Wp[0,0])
         Hharm = np.diag((0.5 + np.arange(0, nlevel))*omega)
-        q_op = np.zeros((nlevel, nlevel))
 
+        # position operator
         assert nlevel > 1
+        q_op = np.zeros((nlevel, nlevel))
         q_op[:-1,1:] = np.diag(np.sqrt(np.arange(nlevel-1))) / np.sqrt(2*omega)
         q_op += q_op.T
 
@@ -196,8 +217,18 @@ class GeneralSBM:
         self.C1 = Wp[0,1:].dot(S)
         self.C2 = D*0.5
 
-        self.x0 = S.T.dot(U.T.dot(self.x0)[1:])
+        self.Elist.append(np.diag(Hharm))
+
+        # self.x0 = S.T.dot(U.T.dot(self.x0)[1:])
         # self.k0 = ? TODO: Fix k0
+
+    def fix_single_mode(self):
+        """ Tricks for single mode quantization. Cannot be quantized for another time.
+        """
+        self.C1 = np.array([self.C1[0], 0])
+        self.C2 = np.array([self.C2[0], 0.001])
+        self.x0 = np.array([self.x0[0], 0])
+        self.k0 = np.array([self.k0[0], 0])
 
 
 if __name__ == '__main__':
@@ -207,12 +238,14 @@ if __name__ == '__main__':
     parser.add_argument('-n', '--nlevel', type=int, default=5, help='Number of level')
     parser.add_argument('-T', '--temp', type=float, default=0.2, help='Temperature')
     parser.add_argument('-e', '--eta', type=float, default=1, help='Mass')
+    parser.add_argument('-E', '--dE', type=float, default=0, help='Energy difference')
     parser.add_argument('-c', '--cutoff', type=float, default=1, help='Cutoff frequency')
     parser.add_argument('-N', '--nmode', type=int, default=100, help='Number of modes')
     parser.add_argument('-s', '--seed', type=int, default=0, help='Seed')
     parser.add_argument('-j', '--spectrum', type=str, default='debye', help='debye/ohm')
     parser.add_argument('--task', type=str, default='genall', help='Command: gencond/genmodel/genall')
-    #parser.add_argument('--autoname', default=False, type=bool, help='Renaming output automatically')
+    parser.add_argument('--initcond', type=bool, default=False, help='Write initial condition')
+    parser.add_argument('--autoname', default=False, type=bool, help='Renaming output automatically')
     parser.add_argument('filename', help='IO Filename')
 
     opt = parser.parse_args()
@@ -240,11 +273,21 @@ if __name__ == '__main__':
         gsbm.load_file(opt.filename)
 
         for i in range(opt.quantize):
-            gsbm.primary_quantize(opt.nlevel)
+            gsbm.primary_quantize(opt.nlevel, opt.temp)
 
     else:
         gsbm.load_model(sbm)
 
-    output_name = opt.filename[:-4] if opt.filename.endswith('.txt') else opt.filename
-    gsbm.write_file(output_name)
+    if opt.autoname:
+        output_name = 'n%g-c%g-%s%s' % (
+            opt.eta, opt.cutoff, 
+            'E%g-' % opt.dE if opt.dE != 0 else '', 
+            'd' if opt.spectrum == 'debye' else 'o')
+    else:
+        output_name = opt.filename[:-4] if opt.filename.endswith('.txt') else opt.filename
+
+    if opt.task in ('expand', 'ex'):
+        output_name += '-ex%d' % opt.quantize
+
+    gsbm.write_file(output_name, opt.initcond)
 
