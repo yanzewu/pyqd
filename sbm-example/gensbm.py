@@ -167,20 +167,20 @@ class GeneralSBM:
         for i in range(self.H0.shape[0]):
             for j in range(self.H0.shape[1]):
                 if self.H1[i,j] != 0.0:
-                    fp.write('%.6g,%.6gQ' % (self.H0[i,j], self.H1[i,j]))
+                    fp.write('%12g,%12gQ' % (self.H0[i,j], self.H1[i,j]))
                 else:
-                    fp.write('%.6g' % self.H0[i,j])
+                    fp.write('%12g' % self.H0[i,j])
                 if j != self.H0.shape[1] - 1:
                     fp.write('\t')
             fp.write('\n')
         
         fp.write('C=\n')
-        fp.write('\t'.join((str(c) for c in self.C1)))
+        fp.write('\t'.join(('%12g'%c for c in self.C1)))
         fp.write('\nomega^2/2=\n')
-        fp.write('\t'.join((str(c) for c in self.C2)))
+        fp.write('\t'.join(('%12g'%c for c in self.C2)))
         fp.write('\nElist=\n')
         for E in self.Elist:
-            fp.write('\t'.join((str(c) for c in E)))
+            fp.write('\t'.join(('%12g'%c for c in E)))
             fp.write('\n')
         fp.close()
 
@@ -188,16 +188,17 @@ class GeneralSBM:
             open(filename_prefix + '-x.txt', 'w').write(','.join(list(map(str, self.x0))))
             open(filename_prefix + '-p.txt', 'w').write(','.join(list(map(str, self.k0))))
 
-    def primary_quantize(self, nlevel, T=0.0):
+    def primary_quantize(self, nlevel):
         
         if len(self.C1) == 1:
             self.fix_single_mode()
 
         W = np.diag(self.C2)*2  # recover 1/2 factor, since it is included in C2
 
+        # This may not work correctly in complex Hamiltonian
         normC = np.linalg.norm(self.C1)
         U, R = np.linalg.qr(np.hstack((self.C1[:,None]/normC, np.zeros((len(self.C1), len(self.C1)-1)))))
-        U[:,0] /= R[0,0]
+        U[:,0] /= R[0,0]    # Make it exactly same as C1 (R00 may be -1)
 
         Wp = U.T.dot(W.dot(U))
         D, S = np.linalg.eigh(Wp[1:,1:])
@@ -209,13 +210,17 @@ class GeneralSBM:
         # position operator
         assert nlevel > 1
         q_op = np.zeros((nlevel, nlevel))
-        q_op[:-1,1:] = np.diag(np.sqrt(np.arange(nlevel-1))) / np.sqrt(2*omega)
+        q_op[:-1,1:] = np.diag(np.sqrt(np.arange(1, nlevel))) / np.sqrt(2*omega)
         q_op += q_op.T
 
         self.H0 = np.kron(self.H0, np.eye(nlevel)) + np.kron(np.eye(len(self.H0)), Hharm) + np.kron(self.H1*normC, q_op)
         self.H1 = np.kron(np.eye(len(self.H0)), q_op)
         self.C1 = Wp[0,1:].dot(S)
         self.C2 = D*0.5
+
+        # cnorm = np.linalg.norm(self.C1)
+        # self.C1 /= cnorm
+        # self.H1 *= cnorm
 
         self.Elist.append(np.diag(Hharm))
 
@@ -273,7 +278,7 @@ if __name__ == '__main__':
         gsbm.load_file(opt.filename)
 
         for i in range(opt.quantize):
-            gsbm.primary_quantize(opt.nlevel, opt.temp)
+            gsbm.primary_quantize(opt.nlevel)
 
     else:
         gsbm.load_model(sbm)
@@ -287,7 +292,7 @@ if __name__ == '__main__':
         output_name = opt.filename[:-4] if opt.filename.endswith('.txt') else opt.filename
 
     if opt.task in ('expand', 'ex'):
-        output_name += '-ex%d' % opt.quantize
+        output_name += '-ex%dq%d' % (opt.quantize, opt.nlevel)
 
     gsbm.write_file(output_name, opt.initcond)
 
