@@ -167,20 +167,20 @@ class GeneralSBM:
         for i in range(self.H0.shape[0]):
             for j in range(self.H0.shape[1]):
                 if self.H1[i,j] != 0.0:
-                    fp.write('%12g,%12gQ' % (self.H0[i,j], self.H1[i,j]))
+                    fp.write('%.12g,%.12gQ' % (self.H0[i,j], self.H1[i,j]))
                 else:
-                    fp.write('%12g' % self.H0[i,j])
+                    fp.write('%.12g' % self.H0[i,j])
                 if j != self.H0.shape[1] - 1:
                     fp.write('\t')
             fp.write('\n')
         
         fp.write('C=\n')
-        fp.write('\t'.join(('%12g'%c for c in self.C1)))
+        fp.write('\t'.join(('%.12g'%c for c in self.C1)))
         fp.write('\nomega^2/2=\n')
-        fp.write('\t'.join(('%12g'%c for c in self.C2)))
+        fp.write('\t'.join(('%.12g'%c for c in self.C2)))
         fp.write('\nElist=\n')
         for E in self.Elist:
-            fp.write('\t'.join(('%12g'%c for c in E)))
+            fp.write('\t'.join(('%.12g'%c for c in E)))
             fp.write('\n')
         fp.close()
 
@@ -213,8 +213,9 @@ class GeneralSBM:
         q_op[:-1,1:] = np.diag(np.sqrt(np.arange(1, nlevel))) / np.sqrt(2*omega)
         q_op += q_op.T
 
+        oldeldim = len(self.H0)
         self.H0 = np.kron(self.H0, np.eye(nlevel)) + np.kron(np.eye(len(self.H0)), Hharm) + np.kron(self.H1*normC, q_op)
-        self.H1 = np.kron(np.eye(len(self.H0)), q_op)
+        self.H1 = np.kron(np.eye(oldeldim), q_op)
         self.C1 = Wp[0,1:].dot(S)
         self.C2 = D*0.5
 
