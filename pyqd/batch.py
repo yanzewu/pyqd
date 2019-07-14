@@ -1,238 +1,159 @@
+""" Concurrent tasks
+"""
 
-import copy
-import numpy as np
-import numpy.random as random
-import multiprocessing as mp
 
+from . import task
+from . import state
 from . import evaluator
-from . import integrator
-from . import recorder
-
-class MDTask:
-
-    def __init__(self, nstep, box, analyze_step=10):
-        self.nstep = nstep
-        self.box = box
-        self.detect_step = 10
-        self.analyze_step = analyze_step
-        self.realstep = 0
-
-    def load(self, init_state, model, integrator, recorder=None):
-        self.state = copy.deepcopy(init_state)
-        self.integrator = integrator
-        self.evaluator = evaluator.Evaluator(model)
-        self.recorder = recorder
-
-    def is_normal_terminated(self):
-        return self.realstep < self.nstep
 
 
-class FSSHTask(MDTask):
-    """ FSSH molecular dynamics
-    """
 
-    def __init__(self, nstep, box, analyze_step=10):
-        """ nstep: int;
-            box: N x 2 array
-        """
-        super().__init__(nstep, box, analyze_step)
-
-    def run(self):
-        self.evaluator.update_potential_ss(self.state)
-        self.integrator.initialize(self.state)   # Initialize cache
-
-        self.analyze(0)
-
-        for n in range(self.nstep):
-            self.integrator.update_first_half(self.state)    # Verlet first half
-            self.evaluator.update_potential_ss(self.state)      # Load energy, force and drv coupling
-            self.integrator.update_el_state_sh(self.state)      # ES integration
-            new_el_state = self.integrator.try_hop(self.state)
-            if new_el_state is None:
-                self.integrator.update_latter_half(self.state)   # Verlet second half
-            else:
-                f_old = self.state.force
-                if not self.integrator.scale_velocity(self.state, new_el_state):
-                    self.integrator.update_latter_half(self.state)
-                else:
-                    self.integrator.update_latter_half(self.state)
-                    self.evaluator.refresh_force_ss(self.state)
-                    #self.state.force = 0.5 * (self.state.force + f_old)
-
-            if (n+1) % self.detect_step == 0:
-                if integrator.outside_box(self.state, self.box):
-                    break
-            if (n+1) % self.analyze_step == 0:
-                self.analyze(n+1)
-
-        self.realstep = n+1
-
-    def analyze(self, n):
-        if self.recorder:
-            self.recorder.collect(self.state, self.integrator.dt * n)
-            self.recorder.collect_energy(*self.integrator.get_energy_ss(self.state))
-
-
-class EhrenfestTask(MDTask):
-    """ Ehrenfest dynamics
-    """
-
-    def __init__(self, nstep, box, analyze_step=10):
-        """ nstep: int;
-            box: N x 2 array
-        """
-        super().__init__(nstep, box, analyze_step)
-
-    def run(self):
-        self.evaluator.update_potential_ms_first_half(self.state)
-        self.evaluator.update_potential_ms_latter_half(self.state)
-        self.integrator.initialize(self.state, 'mf')   # Initialize cache
-
-        print('t\tPE\tEtot')
-        self.analyze(0)
-
-        for n in range(self.nstep):
-            self.integrator.update_first_half(self.state)    # Verlet first half
-            self.evaluator.update_potential_ms_first_half(self.state)
-            self.integrator.update_el_state_mf(self.state)      # ES integration
-            self.evaluator.update_potential_ms_latter_half(self.state)  # Calculate force
-            self.integrator.update_latter_half(self.state)   # Verlet second half
-
-            if (n+1) % self.detect_step == 0:
-                if integrator.outside_box(self.state, self.box):
-                    break
-            if (n+1) % self.analyze_step == 0:
-                self.analyze(n+1)
-
-        self.realstep = n+1
-
-    def analyze(self, n):
-        PE, KE = self.integrator.get_energy_mf(self.state)
-        print('%g\t%4g\t%4g' % (self.integrator.dt * n, PE, KE+PE))
-        if self.recorder:
-            self.recorder.collect(self.state, self.integrator.dt * n)
-            self.recorder.collect_energy(PE, KE)
-
-
-def run_single(mdtask, seed=0):
-    random.seed(seed)
-    mdtask.run()
-    return [mdtask.state, mdtask.is_normal_terminated(), mdtask.recorder]
-
-
-def run_scatter_fssh(m_state, m_model, m_integrator, box, nstep, seed, nbatch, nproc):
+def run_scatter_fssh(x0list, v0list, m_model, m_integrator, box, nstep, record_step, seed, nbatch, nproc):
     """ Run a scattering task with FSSH. State is initiated on adiabatic surface.
     """
 
-    state_stat = []
-        
-    mdtask = FSSHTask(nstep, box)
-    mdtask.load(m_state, m_model, m_integrator)
+    Etot = []
+    stat_matrices = []
 
-    if nproc > 1:
-
-        pool = mp.Pool(nproc)
-        ret = []
-        for i in range(nbatch):
-            ret.append(pool.apply_async(run_single, args=[copy.deepcopy(mdtask), seed+i], error_callback=err_callback))
+    for x0, v0 in zip(x0list, v0list):
             
-        pool.close()
-        pool.join()
+        m_state = state.State(x0, v0, state.create_pure_rho_el(m_model.el_dim))
+        mdtask = task.FSSHTask(nstep, box, record_step)
+        mdtask.load(m_state, m_model, m_integrator)
+        KE, PE = m_integrator.get_energy_ss(m_state)
+        Etot.append(KE+PE)
 
-        result = [r.get() for r in ret]
+        tasks = [copy.deepcopy(mdtask) for i in range(nbatch)]
+        results = run_batch(tasks, seed, nproc)
 
-    else:
-        result = [run_single(copy.deepcopy(mdtask), seed+i) for i in range(nbatch)]
+        stat_matrix = np.zeros((box.shape[0]*2+1, m_model.el_dim))
+        # ROW: outside wall, COL: el_state
 
-    # statistics: wall (%), state (%)
-    stat_matrix = np.zeros((box.shape[0]*2+1, m_model.el_dim))
-    # ROW: outside wall, COL: el_state
+        for r in result:
+            w = integrator.outside_which_wall(r[0], box)
+            e = r[0].el_state
+            stat_matrix[w, e] += 1
 
-    for r in result:
-        w = integrator.outside_which_wall(r[0], box)
-        e = r[0].el_state
-        stat_matrix[w, e] += 1
+        stat_matrices.append(stat_matrix/nbatch)
 
-    return stat_matrix/nbatch
+    return Etot, stat_matrices
 
 
-def run_population_fssh(m_state, m_model, m_integrator, box, nstep, record_step, seed, nbatch, nproc):
+def run_scatter_ehrenfest(x0list, v0list, m_model, m_integrator, box, nstep, record_step):
+    """ Run a scattering task with Ehrenfest dynamics. State is initiated on adiabatic surface.
+    """
+    
+    m_evaluator = evaluator.Evaluator(m_model)
+
+    Etot = []
+    stat_matrices = []
+
+    for x0, v0 in zip(x0list, v0list):
+
+        m_state = state.State(x0, v0, state.create_pure_rho_el(m_model.el_dim))
+        m_state.rho_el = m_evaluator.to_diabatic(m_state.rho_el, m_state.x) # to diabatic basis
+
+        mdtask = task.EhrenfestTask(nstep, box, record_step)
+        mdtask.load(m_state, m_model, m_integrator)
+
+        final_state = run_single(mdtask)[0]
+        KE, PE = m_integrator.get_energy_mf(final_state)
+        Etot.append(KE + PE)
+
+        stat_matrix = np.zeros((box.shape[0]*2+1, m_model.el_dim))
+        # ROW: outside wall, COL: el_state
+        
+        final_state.rho_el = m_evaluator.to_adiabatic(final_state.rho_el, final_state.x)
+        w = integrator.outside_which_wall(final_state, box)
+        stat_matrix[w, :] = np.diag(final_state.rho_el.real)
+        stat_matrices.append(stat_matrix)
+
+    return Etot, stat_matrices
+
+
+def run_population_fssh(x0list, v0list, m_model, m_integrator, nstep, record_step, seed, nproc):
     """ Run a population task with FSSH. State is initiated on diabatic surface.
     Returns time and population evolution.
     """
 
-    mdtask = FSSHTask(nstep, box, record_step)
-    mdtask.load(m_state, m_model, m_integrator, recorder.Recorder())
+    m_evaluator = evaluator.Evaluator(m_model)
+    tasks = []
 
-    evtmp = evaluator.Evaluator(m_model)
-    init_state_list = evtmp.sample_adiabatic_states(m_state, nbatch)    # random initialize
+    for x0, v0 in zip(x0list, v0list):
 
-    if nproc > 1:
+        m_state = state.State(x0, v0, state.create_pure_rho_el(m_model.el_dim))
+        m_evaluator.sample_adiabatic_states(m_state)    # convert to adiabatic basis
 
-        pool = mp.Pool(nproc)
-        ret = []
-        for i in range(nbatch):
-            m_mdtask = copy.deepcopy(mdtask)
-            m_mdtask.state = init_state_list[i]
-            ret.append(pool.apply_async(run_single, args=[m_mdtask, seed+i], error_callback=err_callback))
-            
-        pool.close()
-        pool.join()
+        mdtask = task.FSSHTask(nstep, box, record_step)
+        mdtask.load(m_state, m_model, m_integrator, recorder.Recorder())
 
-        result = [r.get() for r in ret]
+        tasks.append(mdtask)
 
-    else:
-        result = []
-        for i in range(nbatch):
-            m_mdtask = copy.deepcopy(mdtask)
-            m_mdtask.state = init_state_list[i]
-            result.append(run_single(copy.deepcopy(m_mdtask), seed+i))
+    results = run_batch(tasks, seed, nproc)
 
-    t = result[0][2].get_time()
+    t = results[0][1].get_time()
     sumpop = np.zeros((len(t), m_model.el_dim))
 
-    for r in result:
-        for i, s in enumerate(r[2].snapshots):
-            psi = evtmp.recover_diabatic_state(s)
-            sumpop[i] += np.abs(psi)**2
+    for r in results:
+        for i, s in enumerate(r[1].snapshots):
+            sumpop[i] += m_evaluator.recover_diabatic_state(s)
             
-    return t, sumpop / nbatch
+    return t, sumpop / len(results)
 
 
-def run_scatter_ehrenfest(m_state, m_model, m_integrator, box, nstep, analyze_step):
-    """ Run a scattering task with Ehrenfest dynamics. State is initiated on adiabatic surface.
-    """
-
-    evtmp = evaluator.Evaluator(m_model)
-
-    mdtask = EhrenfestTask(nstep, box, analyze_step)
-    mdtask.load(m_state, m_model, m_integrator)
-    mdtask.state.rho_el = evtmp.to_diabatic(mdtask.state.rho_el, mdtask.state.x)
-    fstate = run_single(mdtask)[0]
-    
-    # statistics: wall (%), state (%)
-    stat_matrix = np.zeros((box.shape[0]*2+1, m_model.el_dim))
-    # ROW: outside wall, COL: el_state
-     
-    fstate.rho_el = evtmp.to_adiabatic(fstate.rho_el, fstate.x)
-    w = integrator.outside_which_wall(fstate, box)
-    stat_matrix[w, :] = np.diag(fstate.rho_el.real)
-
-    return stat_matrix
-
-
-def run_population_ehrenfest(m_state, m_model, m_integrator, box, nstep, recorder_step):
+def run_population_ehrenfest(x0list, v0list, m_model, m_integrator, nstep, recorder_step, seed, nproc):
     """ Run a scattering task with Ehrenfest dynamics. State is initiated on diabatic surface.
     Returns time and population evolution.
     """
 
-    mdtask = EhrenfestTask(nstep, box, recorder_step)
-    mdtask.load(m_state, m_model, m_integrator, recorder.Recorder())
-    run_single(mdtask)
-    
-    return mdtask.recorder.get_time(), np.diagonal(mdtask.recorder.get_data('rho_el'), 0, 1, 2).real
+    m_evaluator = evaluator.Evaluator(m_model)
+    tasks = []
+
+    for x0, v0 in zip(x0list, v0list):
+
+        m_state = state.State(x0, v0, state.create_pure_rho_el(m_model.el_dim))
+
+        mdtask = task.EhrenfestTask(nstep, box, recorder_step)
+        mdtask.load(m_state, m_model, m_integrator, recorder.Recorder())
+        tasks.append(mdtask)
+
+    results = run_batch(tasks, seed, nproc)
+
+    t = results[0][1].get_time()
+    sumpop = np.zeros((len(t), m_model.el_dim))
+
+    for r in results:
+        sumpop += np.diagonal(mdtask.recorder.get_data('rho_el'), 0, 1, 2).real
+            
+    return t, sumpop / len(results)
+
+
+def run_single(mdtask:task.MDTask, seed=0):
+    """ Run a single md task.
+    """
+    random.seed(seed)
+    mdtask.run()
+    return [mdtask.state, mdtask.recorder]
+
+
+def run_batch(tasks, seed, nproc):
+    if nproc > 1:
+        pool = mp.Pool(nproc)
+        ret = []
+        for i, mdtask in enumerate(tasks):
+            ret.append(pool.apply_async(run_single, args=[m_mdtask, seed+i], error_callback=err_callback))
+            
+        pool.close()
+        pool.join()
+        results = [r.get() for r in ret]
+
+    else:
+        results = []
+        for i, mdtask in enumerate(tasks):
+            results.append(run_single(mdtask, seed+i))
+
+    return results
 
 
 def err_callback(e):
     print(e)
-

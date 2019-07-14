@@ -18,7 +18,7 @@ class Model:
 
 class SACModel(Model):
 
-    def __init__(self, A, B, C, D):
+    def __init__(self, A=0.01, B=1.6, C=0.005, D=1.0):
         self.A = A
         self.B = B
         self.C = C
@@ -50,7 +50,7 @@ class SACModel(Model):
 
 class DACModel(Model):
 
-    def __init__(self, A, B, C, D, E0):
+    def __init__(self, A=0.1, B=0.28, C=0.015, D=0.06, E0=0.05):
         self.A = A
         self.B = B
         self.C = C
@@ -79,7 +79,7 @@ class DACModel(Model):
 
 class ECRModel(Model):
 
-    def __init__(self, A, B, C):
+    def __init__(self, A=6e-4, B=0.1, C=0.9):
         self.A = A
         self.B = B
         self.C = C
