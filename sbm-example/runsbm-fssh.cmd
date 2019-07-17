@@ -8,4 +8,4 @@ shift & shift
 if "%1"=="" (set timestep=1e-3) else (set timestep=%1)
 cd ..
 @echo on
-python -m pyqd --x0=@%fprefix%-x.txt --k0=@%fprefix%-p.txt --args=%fprefix%-model.txt --nstep=%nstep%0000 --dt=%timestep% --dstep=100 --model=sbm --m=1 --task=fssh --obj=population --box=-10000,10000 --batch=0
+python -m pyqd -x @%fprefix%-x.txt -p @%fprefix%-p.txt -a %fprefix%-model.txt -s %nstep%0000 -d %timestep% -r 100 -m sbm -M 1 -t fssh -O population -n 0

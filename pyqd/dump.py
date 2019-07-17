@@ -18,9 +18,9 @@ class Dumper:
 
         fp = open(self.filename) if self.filename != '-' else sys.stdout
 
-        fp.write('\t'.join(m_title))
+        fp.write('\t'.join(m_title) + '\n')
         for row in data:
-            fp.write('\t'.join(('%6g' % d for d in row)))
+            fp.write('\t'.join(('%.6g' % d for d in row)))
             fp.write('\n')
 
         if fp != sys.stdout:
@@ -40,17 +40,17 @@ class Dumper:
 def write_scatter_result(output, k, E, stat_matrices):
         
     title = ['k', 'E']
-    for i in range(len(box)):
-        for j in range(m_model.el_dim):
+    for i in range((stat_matrices[0].shape[0] - 1)//2):
+        for j in range(stat_matrices[0].shape[1]):
             title.append('%dL:%d' % (i+1, j))
-        for j in range(m_model.el_dim):
+        for j in range(stat_matrices[0].shape[1]):
             title.append('%dR:%d' % (i+1, j))
 
-    for j in range(m_model.el_dim):
+    for j in range(stat_matrices[0].shape[1]):
         title.append('N:%d' % j)
 
     
-    data = np.zeros((len(k), 2 + stat_matrices[0].shape[0]*stat_matrices.shape[1]))
+    data = np.zeros((len(k), 2 + stat_matrices[0].shape[0]*stat_matrices[0].shape[1]))
     for i, (k_, E_, sm_) in enumerate(zip(k, E, stat_matrices)):
         data[i, 0] = k_
         data[i, 1] = E_

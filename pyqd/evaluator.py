@@ -181,7 +181,7 @@ class Evaluator:
         """
 
         state.rho_el = self.to_adiabatic(state.rho_el, state.x)
-        sum_pop = np.cumsum(np.diag(rho_ad.real))
+        sum_pop = np.cumsum(np.diag(state.rho_el.real))
         state.el_state = np.searchsorted(sum_pop, np.random.uniform())
         
 
@@ -200,5 +200,5 @@ class Evaluator:
 
         state.rho_el = ad_states.dot(state.rho_el.dot(ad_states.T.conj()))
 
-        return np.diag(ad_states.dot(rhonew.dot(ad_states.T.conj())))
+        return np.diag(ad_states.dot(rhonew.dot(ad_states.T.conj()))).real
         

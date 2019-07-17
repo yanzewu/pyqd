@@ -60,7 +60,7 @@ class FSSHTask(MDTask):
                     #self.state.force = 0.5 * (self.state.force + f_old)
 
             if (n+1) % self.detect_step == 0:
-                if self.box and integrator.outside_box(self.state, self.box):
+                if self.box is not None and integrator.outside_box(self.state, self.box):
                     break
             if (n+1) % self.analyze_step == 0:
                 self.analyze(n+1)
@@ -88,7 +88,7 @@ class EhrenfestTask(MDTask):
         self.evaluator.update_potential_ms_latter_half(self.state)
         self.integrator.initialize(self.state, 'mf')   # Initialize cache
 
-        print('t\tPE\tEtot')
+        #print('t\tPE\tEtot')
         self.analyze(0)
 
         for n in range(self.nstep):
@@ -99,7 +99,7 @@ class EhrenfestTask(MDTask):
             self.integrator.update_latter_half(self.state)   # Verlet second half
 
             if (n+1) % self.detect_step == 0:
-                if self.box and integrator.outside_box(self.state, self.box):
+                if self.box is not None and integrator.outside_box(self.state, self.box):
                     break
             if (n+1) % self.analyze_step == 0:
                 self.analyze(n+1)
@@ -108,7 +108,7 @@ class EhrenfestTask(MDTask):
 
     def analyze(self, n):
         PE, KE = self.integrator.get_energy_mf(self.state)
-        print('%g\t%4g\t%4g' % (self.integrator.dt * n, PE, KE+PE))
+        #print('%g\t%4g\t%4g' % (self.integrator.dt * n, PE, KE+PE))
         if self.recorder:
             self.recorder.collect(self.state, self.integrator.dt * n)
             self.recorder.collect_energy(PE, KE)

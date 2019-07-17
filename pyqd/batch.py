@@ -1,11 +1,14 @@
 """ Concurrent tasks
 """
 
+import copy
+import numpy as np
 
 from . import task
 from . import state
 from . import evaluator
-
+from . import recorder
+from . import integrator
 
 
 def run_scatter_fssh(x0list, v0list, m_model, m_integrator, box, nstep, record_step, seed, nbatch, nproc):
@@ -29,7 +32,7 @@ def run_scatter_fssh(x0list, v0list, m_model, m_integrator, box, nstep, record_s
         stat_matrix = np.zeros((box.shape[0]*2+1, m_model.el_dim))
         # ROW: outside wall, COL: el_state
 
-        for r in result:
+        for r in results:
             w = integrator.outside_which_wall(r[0], box)
             e = r[0].el_state
             stat_matrix[w, e] += 1
@@ -84,7 +87,7 @@ def run_population_fssh(x0list, v0list, m_model, m_integrator, nstep, record_ste
         m_state = state.State(x0, v0, state.create_pure_rho_el(m_model.el_dim))
         m_evaluator.sample_adiabatic_states(m_state)    # convert to adiabatic basis
 
-        mdtask = task.FSSHTask(nstep, box, record_step)
+        mdtask = task.FSSHTask(nstep, None, record_step)
         mdtask.load(m_state, m_model, m_integrator, recorder.Recorder())
 
         tasks.append(mdtask)
@@ -113,7 +116,7 @@ def run_population_ehrenfest(x0list, v0list, m_model, m_integrator, nstep, recor
 
         m_state = state.State(x0, v0, state.create_pure_rho_el(m_model.el_dim))
 
-        mdtask = task.EhrenfestTask(nstep, box, recorder_step)
+        mdtask = task.EhrenfestTask(nstep, None, recorder_step)
         mdtask.load(m_state, m_model, m_integrator, recorder.Recorder())
         tasks.append(mdtask)
 
@@ -131,7 +134,7 @@ def run_population_ehrenfest(x0list, v0list, m_model, m_integrator, nstep, recor
 def run_single(mdtask:task.MDTask, seed=0):
     """ Run a single md task.
     """
-    random.seed(seed)
+    np.random.seed(seed)
     mdtask.run()
     return [mdtask.state, mdtask.recorder]
 

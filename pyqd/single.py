@@ -5,13 +5,13 @@ Run a single session, with fixed x, p
 import numpy as np
 
 from . import state
-from . import batch
+from . import task
 from . import recorder
 from . import evaluator
 from . import dump
 
 
-def run_single_session(x0, v0, m_integrator, m_model, box, jobtype, jobobj, seed, output=['population']):
+def run_single_session(x0, v0, m_model, m_integrator, box, nstep, rstep, jobtype, jobobj, seed, analysis=['population']):
 
     np.random.seed(seed)
     m_recorder = recorder.Recorder()
@@ -22,18 +22,18 @@ def run_single_session(x0, v0, m_integrator, m_model, box, jobtype, jobobj, seed
     if jobobj == 'scatter':
         
         if jobtype == 'fssh':
-            task = batch.FSSHTask(opt.nstep, box, opt.dstep)
-            task.load(init_state, m_model, m_integrator, m_recorder)
-            task.run()
+            m_task = task.FSSHTask(nstep, box, rstep)
+            m_task.load(m_state, m_model, m_integrator, m_recorder)
+            m_task.run()
             population = np.zeros((len(m_recorder.snapshots), m_model.el_dim))
             for i, s in enumerate(m_recorder.snapshots):
                 population[i, s.el_state] = 1
             
         elif jobtype == 'ehrenfest':
             m_state.rho_el = m_evaluator.to_diabatic(m_state.rho_el, m_state.x)
-            task = batch.EhrenfestTask(opt.nstep, box, opt.dstep)
-            task.load(init_state, m_model, m_integrator, m_recorder)
-            task.run()
+            m_task = task.EhrenfestTask(nstep, box, rstep)
+            m_task.load(m_state, m_model, m_integrator, m_recorder)
+            m_task.run()
             for s in m_recorder.snapshots:
                 s.rho_el = m_evaluator.to_adiabatic(s.rho_el, s.x)
             population = np.diagonal(m_recorder.get_data('rho_el'), 0, 1, 2).real
@@ -42,31 +42,31 @@ def run_single_session(x0, v0, m_integrator, m_model, box, jobtype, jobobj, seed
     elif jobobj == 'population':
 
         if jobtype == 'fssh':
-            m_evaluator.sample_adiabatic_states(init_state)
-            task = batch.FSSHTask(opt.nstep, None, opt.dstep)
-            task.load(init_state, m_model, m_integrator, m_recorder)
-            task.run()
+            m_evaluator.sample_adiabatic_states(m_state)
+            m_task = task.FSSHTask(nstep, None, rstep)
+            m_task.load(m_state, m_model, m_integrator, m_recorder)
+            m_task.run()
             for s in m_recorder.snapshots:
-                population.append(m_evaluator.recover_diabatic_state())
+                population.append(m_evaluator.recover_diabatic_state(s))
             population = np.array(population)
             
         elif jobtype == 'ehrenfest':
-            task = batch.EhrenfestTask(opt.nstep, None, opt.dstep)
-            task.load(init_state, m_model, m_integrator, m_recorder)
-            task.run()
+            m_task = task.EhrenfestTask(nstep, None, rstep)
+            m_task.load(m_state, m_model, m_integrator, m_recorder)
+            m_task.run()
             population = np.diagonal(m_recorder.get_data('rho_el'), 0, 1, 2).real
     
     dumper = dump.Dumper('-')
     
-    for d in output:
+    for d in set(analysis):
 
         if d == 'population':
             dumper.write_data_with_time(population, m_recorder.get_time(), title_prefix='P')
+        elif d == 'plot':
+            plot_md(jobtype, m_recorder, m_model)
         else:
             dumper.write_data(m_recorder.get_data(d), title_prefix=d)
-
-    plot_md(jobtype, m_recorder, m_model, box)
-
+        
 
 def plot_md(jobtype, m_recorder:recorder.Recorder, m_model):
 
